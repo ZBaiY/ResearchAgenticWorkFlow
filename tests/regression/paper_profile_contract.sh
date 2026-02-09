@@ -107,9 +107,9 @@ task = "$TASK"
 p = json.loads(Path(f"AGENTS/tasks/{task}/outputs/paper_profile/paper_profile.json").read_text())
 report = Path(f"AGENTS/tasks/{task}/review/paper_profile_update_report.md").read_text()
 
-# inputs groups exist
-for g in ["paper_tex", "notes", "references", "bib"]:
-    assert g in p["inputs_used"], g
+# source groups exist
+for g in ["tex", "bib", "references_for_seeds", "references_general"]:
+    assert g in p["source_files"], g
 
 # field detection
 assert p["profile"].get("field", "").strip() != ""
@@ -124,9 +124,10 @@ assert len(kw) >= 12, len(kw)
 
 # seeds
 assert len(p["profile"]["seed_papers"]) >= 3, len(p["profile"]["seed_papers"])
+assert len(p["profile"]["seed_papers"]) <= 5, len(p["profile"]["seed_papers"])
 
 # report grouping
-for marker in ["- paper_tex:", "- notes:", "- references:", "- bib:"]:
+for marker in ["- paper_tex:", "- notes:", "- references_for_seeds:", "- references:", "- bib:"]:
     assert marker in report, marker
 
 print("PASS: regression contract verified", task)

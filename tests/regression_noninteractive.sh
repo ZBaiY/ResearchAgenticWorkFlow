@@ -59,6 +59,11 @@ arXiv:2404.33333
 EOF
 export PAPER_DIR
 export REFS_DIR
+USER_META="USER/paper/meta/paper_profile.json"
+USER_META_HASH_BEFORE="missing"
+if [[ -f "$USER_META" ]]; then
+  USER_META_HASH_BEFORE="$(shasum -a 256 "$USER_META" | awk '{print $1}')"
+fi
 
 echo "[1/4] bart output check"
 BART_OUT="$(./bart "please check draft metadata and suggest next steps")"
@@ -121,6 +126,16 @@ for skill, tid in tasks.items():
 print("OK default --no policy works")
 PY
 
+if [[ -f "$USER_META" ]]; then
+  USER_META_HASH_AFTER_STEP3="$(shasum -a 256 "$USER_META" | awk '{print $1}')"
+else
+  USER_META_HASH_AFTER_STEP3="missing"
+fi
+[[ "$USER_META_HASH_BEFORE" == "$USER_META_HASH_AFTER_STEP3" ]] || {
+  echo "FAIL: USER changed during non-interactive default mode"
+  exit 1
+}
+
 echo "[4/4] explicit --yes still deterministic"
 python3 - <<'PY'
 import os
@@ -169,3 +184,13 @@ for skill, tid in tasks.items():
 
 print("PASS: regression checks completed")
 PY
+
+if [[ -f "$USER_META" ]]; then
+  USER_META_HASH_AFTER_STEP4="$(shasum -a 256 "$USER_META" | awk '{print $1}')"
+else
+  USER_META_HASH_AFTER_STEP4="missing"
+fi
+[[ "$USER_META_HASH_BEFORE" == "$USER_META_HASH_AFTER_STEP4" ]] || {
+  echo "FAIL: USER changed during non-interactive --yes mode without promotion"
+  exit 1
+}

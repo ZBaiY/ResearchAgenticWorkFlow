@@ -4,7 +4,6 @@ set -euo pipefail
 ROOT="${1:-}"
 TASK_ID="${2:-}"
 SKILL="paper_profile_update"
-APPROVAL_SH="$ROOT/AGENTS/runtime/approval.sh"
 
 if [[ -z "$ROOT" || -z "$TASK_ID" ]]; then
   echo "Usage: run.sh <repo_root> <task_id>" >&2
@@ -25,8 +24,6 @@ CMD_LOG="$LOG_DIR/commands.txt"
 STDOUT_LOG="$LOG_DIR/stdout.log"
 STDERR_LOG="$LOG_DIR/stderr.log"
 RESOLVED_JSON="$LOG_DIR/resolved_request.json"
-STAGE_CONSENT_JSON="$LOG_DIR/stage_consent.json"
-USER_AUDIT_JSON="$LOG_DIR/user_write_audit.json"
 BUILD_SCRIPT="$ROOT/AGENTS/skills/paper_profile_update/scripts/build_profile.py"
 
 if [[ ! -d "$TDIR" ]]; then
@@ -34,7 +31,42 @@ if [[ ! -d "$TDIR" ]]; then
   exit 2
 fi
 
-source "$APPROVAL_SH"
+# paper_profile_update must run non-interactively end-to-end.
+if [[ "${APPROVAL_MODE:-interactive}" == "interactive" ]]; then
+  export APPROVAL_MODE="no"
+fi
+
+has_tex() {
+  local d="$1"
+  [[ -d "$d" ]] || return 1
+  find "$d" -type f -name '*.tex' -print -quit 2>/dev/null | grep -q .
+}
+
+has_paper_inputs() {
+  local d="$1"
+  [[ -d "$d" ]] || return 1
+  find "$d" -type f \( -name '*.tex' -o -name '*.bib' -o -name '*.md' -o -name '*.txt' -o -name '*.pdf' \) -print -quit 2>/dev/null | grep -q .
+}
+
+# Fallback input roots for repos that keep files outside USER/.
+# Never fall back to repo root: that pollutes discovery with AGENTS/runtime files.
+if ! has_paper_inputs "$USER_PAPER"; then
+  if has_tex "$ROOT/paper"; then
+    USER_PAPER="$ROOT/paper"
+  fi
+fi
+
+if [[ ! -d "$USER_NOTES" && -d "$ROOT/notes" ]]; then
+  USER_NOTES="$ROOT/notes"
+fi
+
+if [[ ! -d "$USER_REFS_FOR_SEEDS" ]]; then
+  if [[ -d "$ROOT/references/for_seeds" ]]; then
+    USER_REFS_FOR_SEEDS="$ROOT/references/for_seeds"
+  elif [[ -d "$ROOT/references" ]]; then
+    USER_REFS_FOR_SEEDS="$ROOT/references"
+  fi
+fi
 
 mkdir -p "$OUT_DIR" "$REVIEW_DIR" "$LOG_DIR"
 : > "$CMD_LOG"
@@ -45,13 +77,6 @@ exec 3>&1 4>&2
 exec >> "$STDOUT_LOG" 2>> "$STDERR_LOG"
 
 log_cmd() { printf '%s\n' "$*" >> "$CMD_LOG"; }
-sha256_file() {
-  if [[ -f "$1" ]]; then
-    shasum -a 256 "$1" | awk '{print $1}'
-  else
-    echo ""
-  fi
-}
 
 WRITE_TO_USER_REQUESTED="false"
 if [[ -f "$REQ" ]] && rg -qi '^\s*write_to_user\s*:\s*true\s*$' "$REQ"; then
@@ -74,6 +99,36 @@ if [[ -f "$REQ" ]]; then
   fi
 fi
 
+req_bool() {
+  local key="$1"
+  local default="${2:-}"
+  [[ -f "$REQ" ]] || { [[ -n "$default" ]] && echo "$default"; return 0; }
+  local v
+  v="$(sed -nE "s/^[[:space:]]*${key}[[:space:]]*:[[:space:]]*(true|false|yes|no|1|0)[[:space:]]*$/\\1/ip" "$REQ" | head -n1 | tr '[:upper:]' '[:lower:]')"
+  if [[ -n "$v" ]]; then
+    case "$v" in
+      true|yes|1) echo "1" ;;
+      false|no|0) echo "0" ;;
+      *) [[ -n "$default" ]] && echo "$default" ;;
+    esac
+    return 0
+  fi
+  [[ -n "$default" ]] && echo "$default"
+}
+
+req_int() {
+  local key="$1"
+  local default="${2:-3}"
+  [[ -f "$REQ" ]] || { echo "$default"; return 0; }
+  local v
+  v="$(sed -nE "s/^[[:space:]]*${key}[[:space:]]*:[[:space:]]*([0-9]+)[[:space:]]*$/\\1/p" "$REQ" | head -n1)"
+  if [[ -n "$v" ]]; then
+    echo "$v"
+  else
+    echo "$default"
+  fi
+}
+
 if [[ ! -f "$BUILD_SCRIPT" ]]; then
   echo "Missing build script: $BUILD_SCRIPT" >&2
   exit 2
@@ -81,7 +136,13 @@ fi
 
 log_cmd "python3 $BUILD_SCRIPT --root $ROOT --task-id $TASK_ID --user-paper $USER_PAPER --user-notes $USER_NOTES --user-refs-for-seeds $USER_REFS_FOR_SEEDS --out-json $PROFILE_JSON --out-report $REPORT_MD --resolved-json $RESOLVED_JSON"
 ONLINE_ARG=""
-if [[ "${ONLINE_LOOKUP:-0}" == "1" ]]; then
+REQUEST_ONLINE_LOOKUP="$(req_bool online_lookup "${ONLINE_LOOKUP:-0}")"
+REQUEST_ONLINE_FAILFAST="$(req_bool online_failfast "${ONLINE_FAILFAST:-1}")"
+REQUEST_MIN_COMPLETE_SEEDS="$(req_int min_complete_seeds "${PAPER_PROFILE_MIN_COMPLETE_SEEDS:-3}")"
+export ONLINE_LOOKUP="$REQUEST_ONLINE_LOOKUP"
+export ONLINE_FAILFAST="$REQUEST_ONLINE_FAILFAST"
+export PAPER_PROFILE_MIN_COMPLETE_SEEDS="$REQUEST_MIN_COMPLETE_SEEDS"
+if [[ "$REQUEST_ONLINE_LOOKUP" == "1" ]]; then
   ONLINE_ARG="--online"
 fi
 set +e
@@ -102,6 +163,7 @@ set -e
 if [[ "$BUILD_RC" -ne 0 ]]; then
   rm -f "$PROFILE_JSON" "$REPORT_MD"
   ERR_MD="$REVIEW_DIR/error.md"
+  BUILD_ERR_TAIL="$(tail -n 20 "$STDERR_LOG" 2>/dev/null | tr '\n' ' ' | sed -E 's/[[:space:]]+/ /g' || true)"
   python3 - <<PY
 import json
 from pathlib import Path
@@ -109,7 +171,10 @@ from pathlib import Path
 resolved_path = Path("$RESOLVED_JSON")
 err_path = Path("$ERR_MD")
 task_id = "$TASK_ID"
-online_lookup = "true" if "${ONLINE_LOOKUP:-0}" in {"1", "true", "yes"} else "false"
+online_requested = "true" if "${ONLINE_LOOKUP:-0}" in {"1", "true", "yes"} else "false"
+net_allowed = "true" if "${NET_ALLOWED:-0}" in {"1", "true", "yes"} else "false"
+online_failfast = "true" if "${ONLINE_FAILFAST:-1}" in {"1", "true", "yes"} else "false"
+min_complete_seeds = int("${PAPER_PROFILE_MIN_COMPLETE_SEEDS:-3}" or "3")
 
 obj = {}
 if resolved_path.exists():
@@ -122,30 +187,52 @@ req = obj.get("requirements", {}) if isinstance(obj, dict) else {}
 missing = req.get("missing", []) if isinstance(req, dict) else []
 if not isinstance(missing, list):
     missing = []
-error_code = "PROFILE_REQUIREMENTS_NOT_MET" if missing else "PAPER_PROFILE_BUILD_FAILED"
+error_code = "PAPER_PROFILE_BUILD_FAILED"
 inputs = obj.get("inputs_scanned", {}) if isinstance(obj, dict) else {}
+stages = obj.get("stage_breakdown", []) if isinstance(obj, dict) else []
 next_actions = obj.get("next_actions", []) if isinstance(obj, dict) else []
 if not isinstance(next_actions, list):
     next_actions = []
 stop_reason = obj.get("stop_reason", "Stopped early to avoid low-quality partial output.")
+build_error_tail = """$BUILD_ERR_TAIL""".strip()
 
 lines = [
     "# Error Report",
     "",
     f"error_code: {error_code}",
+    f"cause: {build_error_tail}" if build_error_tail else "cause: unknown",
     f"missing: {json.dumps(missing)}" if missing else "missing: []",
-    "completeness_rules: seed counts only if abstract present and required fields are complete",
-    f"online_lookup: {str(obj.get('online_lookup', online_lookup)).lower()}",
+    "completeness_rules: COMPLETE means title + (authors or link/arxiv_id/doi); abstract is optional",
+    f"online_requested: {str(obj.get('online_requested', online_requested)).lower()}",
+    f"net_allowed: {str(obj.get('net_allowed', net_allowed)).lower()}",
+    f"online_attempted: {str(obj.get('online_attempted', False)).lower()}",
+    f"online_backend_used: {obj.get('online_backend_used', 'none')}",
+    f"online_fail_reason: {obj.get('online_fail_reason', None)}",
+    f"validation_phase: {obj.get('validation_phase', 'post_online')}",
+    f"online_failfast: {str(obj.get('online_failfast', online_failfast)).lower()}",
+    f"min_complete_seeds: {obj.get('min_complete_seeds', min_complete_seeds)}",
     f"inputs_scanned: {json.dumps(inputs)}",
-    "next_actions:",
+    "stages_attempted:",
 ]
+if isinstance(stages, list):
+    for st in stages:
+        if not isinstance(st, dict):
+            continue
+        lines.append(
+            "- "
+            + f"{st.get('stage','unknown')}: attempted={st.get('attempted')} "
+            + f"added={st.get('added',0)} complete={st.get('complete_count',0)} "
+            + f"partial={st.get('partial_count',0)} "
+            + f"missing={st.get('top_missing_fields',[])}"
+        )
+lines.append("next_actions:")
 for x in next_actions:
     lines.append(f"- {x}")
 if not next_actions:
     lines.extend([
-        "- add USER/references/for_seeds files or USER/paper/*.bib with abstracts",
-        "- set online_lookup=true in request or run with --online",
-        "- specify/verify USER/paper/main.tex and include graph",
+        "- Add 3 papers into USER/references/for_seeds/",
+        "- Add a .bib under USER/paper/",
+        "- Enable online_lookup=true",
     ])
 lines += [
     f"stop_reason: {stop_reason}",
@@ -154,13 +241,14 @@ err_path.parent.mkdir(parents=True, exist_ok=True)
 err_path.write_text("\\n".join(lines) + "\\n", encoding="utf-8")
 PY
   {
-    if [[ -f "$ERR_MD" ]] && rg -q '^error_code: PROFILE_REQUIREMENTS_NOT_MET$' "$ERR_MD"; then
-      echo "ERROR_CODE=PROFILE_REQUIREMENTS_NOT_MET"
-    else
-      echo "ERROR_CODE=PAPER_PROFILE_BUILD_FAILED"
-    fi
+    echo "ERROR_CODE=PAPER_PROFILE_BUILD_FAILED"
     if [[ -f "$ERR_MD" ]]; then
-      sed -n '/^error_code:/p;/^missing:/p;/^completeness_rules:/p;/^online_lookup:/p;/^inputs_scanned:/p;/^next_actions:/,/^stop_reason:/p' "$ERR_MD"
+      MISSING_LINE="$(sed -n 's/^missing: //p' "$ERR_MD" | head -n1)"
+      [[ -n "$MISSING_LINE" ]] && echo "MISSING=$MISSING_LINE"
+      ACTION_LINE="$(sed -n 's/^- //p' "$ERR_MD" | head -n1)"
+      [[ -n "$ACTION_LINE" ]] && echo "ACTION=$ACTION_LINE"
+    elif [[ -n "$BUILD_ERR_TAIL" ]]; then
+      echo "ACTION=Check review/error.md and add required inputs."
     fi
     echo "SEE=AGENTS/tasks/$TASK_ID/review/error.md"
   } >&4
@@ -183,95 +271,5 @@ obj.update({
 })
 p.write_text(json.dumps(obj, indent=2), encoding="utf-8")
 PY
-
-maybe_stage() {
-  local resp_lc="n"
-  if approval_stage_confirm "Stage profile update package to GATE/staged/$TASK_ID? (y/N) "; then
-    resp_lc="y"
-  fi
-  if [[ "$resp_lc" != "y" ]]; then
-    cat > "$STAGE_CONSENT_JSON" <<EOF2
-{
-  "task_id": "$TASK_ID",
-  "skill": "$SKILL",
-  "staged": false,
-  "user_response": "$resp_lc",
-  "timestamp_utc": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
-}
-EOF2
-    return 0
-  fi
-
-  STAGED_SKILL_DIR="$ROOT/GATE/staged/$TASK_ID/$SKILL"
-  mkdir -p "$STAGED_SKILL_DIR"
-  cp "$PROFILE_JSON" "$STAGED_SKILL_DIR/paper_profile.json"
-  cp "$REPORT_MD" "$STAGED_SKILL_DIR/paper_profile_update_report.md"
-
-  cat > "$STAGED_SKILL_DIR/STAGE.md" <<EOF2
-# Staged Profile Update
-
-- task_id: $TASK_ID
-- skill: $SKILL
-- staged_dir: GATE/staged/$TASK_ID/$SKILL
-
-## Staged files
-- paper_profile.json
-- paper_profile_update_report.md
-
-## Manual promotion to USER (canonical)
-cp GATE/staged/$TASK_ID/$SKILL/paper_profile.json USER/paper/meta/paper_profile.json
-
-## Minimal acceptance checklist
-- Confirm keywords/categories reflect manuscript intent.
-- Confirm short blurb and themes are accurate.
-- Promote to USER only after manual review.
-EOF2
-
-  cat > "$STAGE_CONSENT_JSON" <<EOF2
-{
-  "task_id": "$TASK_ID",
-  "skill": "$SKILL",
-  "staged": true,
-  "user_response": "$resp_lc",
-  "timestamp_utc": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")",
-  "staged_dir": "GATE/staged/$TASK_ID/$SKILL"
-}
-EOF2
-}
-
-if [[ "$WRITE_TO_USER" == "true" ]]; then
-  warn="WARNING: This will write into USER/ (canonical workspace). This bypasses the normal GATE staging.\nProceed? Type WRITE USER to confirm (anything else cancels): "
-  confirm="$(approval_text "$warn" "AUTO-NO")"
-
-  if [[ "$confirm" == "WRITE USER" ]]; then
-    USER_META_DIR="$ROOT/USER/paper/meta"
-    USER_META_FILE="$USER_META_DIR/paper_profile.json"
-    mkdir -p "$USER_META_DIR"
-    cp "$PROFILE_JSON" "$USER_META_FILE"
-    cat > "$USER_AUDIT_JSON" <<EOF2
-{
-  "timestamp_utc": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")",
-  "files_written": ["USER/paper/meta/paper_profile.json"],
-  "sha256": "$(sha256_file "$USER_META_FILE")",
-  "user_confirmation_text": "$(printf '%s' "$confirm")"
-}
-EOF2
-
-    cat > "$STAGE_CONSENT_JSON" <<EOF2
-{
-  "task_id": "$TASK_ID",
-  "skill": "$SKILL",
-  "staged": false,
-  "user_response": "direct_user_write",
-  "timestamp_utc": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")",
-  "notes": "write_to_user confirmed with exact phrase"
-}
-EOF2
-  else
-    maybe_stage
-  fi
-else
-  maybe_stage
-fi
 
 echo "$SKILL completed for task $TASK_ID"

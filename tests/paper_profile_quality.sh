@@ -119,21 +119,19 @@ kw = [x.lower() for x in profile["profile"]["keywords"]]
 for bad in ["begin", "newcommand", "equation", "abstract", "authors", "arxiv", "alice", "bob", "carol", "doe", "smith"]:
     assert bad not in kw, f"bad keyword leaked: {bad}"
 assert len(profile["profile"]["seed_papers"]) >= 1, "expected at least one seed paper"
-assert len(profile["profile"]["seed_papers"]) >= 3, "expected >=3 complete seed papers"
+assert len(profile["profile"]["seed_papers"]) >= 3, "expected >=3 ranked seed papers"
+assert len(profile["profile"]["seed_papers"]) <= 5, "expected seed cap <=5"
 for s in profile["profile"]["seed_papers"]:
     assert str(s.get("title", "")).strip(), "seed missing title"
     assert isinstance(s.get("authors", []), list) and len(s.get("authors", [])) >= 1, "seed missing authors"
-    assert str(s.get("abstract", "")).strip(), "seed missing abstract"
-    assert str(s.get("link", "")).startswith(("http://", "https://")), "seed missing link"
+    assert str(s.get("completeness", "")).strip() in {"COMPLETE", "PARTIAL", "INVALID"}, "seed completeness missing"
 assert profile["profile"].get("field", "").strip(), "missing field"
 assert float(profile["profile"].get("field_confidence", 0.0)) >= 0.0
-for grp in ["paper_tex", "notes", "references", "bib"]:
-    assert grp in profile["inputs_used"], grp
-
-if "$missing" == "yes":
-    assert "Missing2025" in profile["profile"]["unresolved_cites"], "missing cite should be unresolved"
-else:
-    assert profile["profile"]["unresolved_cites"] == [], "unresolved cites should be empty"
+assert "source_files" in profile
+for grp in ["tex", "bib", "references_for_seeds", "references_general"]:
+    assert grp in profile["source_files"], grp
+assert "seed_summary" in profile["profile"]
+assert profile["profile"]["seed_summary"]["found"] >= len(profile["profile"]["seed_papers"])
 
 print("OK", task)
 PY

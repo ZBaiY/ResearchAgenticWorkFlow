@@ -1,0 +1,9 @@
+{
+  "timestamp_utc": "20260209T192629Z",
+  "task_id": "test_guard_demo_20260209T192629Z",
+  "skill": "paper_profile_update",
+  "from": "GATE/staged/test_guard_demo_20260209T192629Z/paper_profile_update",
+  "targets": [
+    "USER/paper/meta/paper_profile.json"
+  ]
+}

@@ -69,6 +69,7 @@ add_dir "$TDIR/deliverable/src" "deliverable/src"
 add_dir "$TDIR/deliverable/pptx" "deliverable/pptx"
 add_dir "$TDIR/deliverable/prd" "deliverable/prd"
 add_file "$TDIR/outputs/compute/result.json" "outputs/compute/result.json"
+add_file "$TDIR/outputs/paper_profile/paper_profile.json" "paper_profile.json"
 add_file "$TDIR/logs/compute/consent.json" "logs/compute_consent.json"
 
 if [[ ${#SRC[@]} -eq 0 ]]; then
@@ -152,6 +153,29 @@ $(printf '%b' "$STAGED_LIST")
 - Inspect patch/source/result summary before promoting.
 - Promote only approved files into USER manually.
 EOF2
+
+# Machine-readable promotion contract (authoritative).
+if [[ "$SKILL" == "paper_profile_update" && -f "$SKILL_STAGE_DIR/paper_profile.json" ]]; then
+  cat > "$TASK_STAGE_DIR/PROMOTE.json" <<EOF2
+{
+  "kind": "promotion_contract",
+  "skill": "paper_profile_update",
+  "from": "GATE/staged/$TASK_ID/paper_profile_update",
+  "to": "USER/paper/meta/paper_profile.json",
+  "mappings": [
+    {
+      "src": "GATE/staged/$TASK_ID/paper_profile_update/paper_profile.json",
+      "dst": "USER/paper/meta/paper_profile.json"
+    }
+  ],
+  "command": ["bash", "AGENTS/runtime/promote_to_user.sh", "--task", "$TASK_ID"],
+  "confirmation_required": true,
+  "allowed_responses": ["yes", "y", "no", "n"],
+  "on_yes": "execute",
+  "on_no": "noop"
+}
+EOF2
+fi
 
 cat > "$CONSENT_JSON" <<EOF2
 {

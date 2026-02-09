@@ -1,0 +1,9 @@
+{
+  "timestamp_utc": "20260209T191855Z",
+  "task_id": "test_global_mode_on_allowed_20260209T191855Z",
+  "skill": "paper_profile_update",
+  "from": "GATE/staged/test_global_mode_on_allowed_20260209T191855Z/paper_profile_update",
+  "targets": [
+    "USER/paper/meta/paper_profile.json"
+  ]
+}

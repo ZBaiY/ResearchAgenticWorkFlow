@@ -23,7 +23,7 @@ assert_error_md() {
   [[ -f "$err" ]] || { echo "FAIL: missing $err"; exit 1; }
   rg -q '^error_code: PROFILE_REQUIREMENTS_NOT_MET$' "$err" || { echo "FAIL: error_code missing"; exit 1; }
   rg -q '^missing: ' "$err" || { echo "FAIL: missing list missing"; exit 1; }
-  rg -q '^online_lookup: ' "$err" || { echo "FAIL: online_lookup missing"; exit 1; }
+  rg -q '^(online_lookup|online_requested): ' "$err" || { echo "FAIL: online flag missing"; exit 1; }
   rg -q '^inputs_scanned: ' "$err" || { echo "FAIL: inputs_scanned missing"; exit 1; }
   rg -q '^next_actions:' "$err" || { echo "FAIL: next_actions missing"; exit 1; }
   rg -q '^stop_reason: ' "$err" || { echo "FAIL: stop_reason missing"; exit 1; }
@@ -50,7 +50,7 @@ printf '%s\n' "$OUT2"
 [[ "$RC2" -ne 0 ]] || { echo "FAIL: expected non-zero"; exit 1; }
 rg -q '^SEE=AGENTS/tasks/.*/review/error.md$' <<<"$OUT2" || { echo "FAIL: missing SEE"; exit 1; }
 
-echo "[3/4] paper_profile_update failfast: minimal tex, no bib/references"
+echo "[3/4] paper_profile_update resilient mode: minimal tex, no bib/references"
 PAPER_A="$(mktemp -d /tmp/failfast_paper_a_XXXX)"
 cat > "$PAPER_A/main.tex" <<'EOF'
 \documentclass{article}
@@ -61,18 +61,12 @@ cat > "$PAPER_A/main.tex" <<'EOF'
 \end{document}
 EOF
 TASK3="$(./bin/agenthub start --skill paper_profile_update --task-name "test_failfast_profile_a_${RUN_TAG}" --request "$REQ_DIR/minimal.md" | extract_task)"
-set +e
 OUT3="$(PAPER_PROFILE_USER_PAPER="$PAPER_A" ./bin/agenthub run --task "$TASK3" 2>&1)"
-RC3=$?
-set -e
 printf '%s\n' "$OUT3"
-[[ "$RC3" -ne 0 ]] || { echo "FAIL: expected non-zero"; exit 1; }
-rg -q '^MISSING=' <<<"$OUT3" || { echo "FAIL: expected MISSING line in stderr"; exit 1; }
-assert_error_md "$TASK3"
-ERR3="AGENTS/tasks/$TASK3/review/error.md"
-rg -q 'seed_papers\(complete>=3\)' "$ERR3" || { echo "FAIL: missing seed requirement in error.md"; exit 1; }
+[[ -f "AGENTS/tasks/$TASK3/review/paper_profile_update_report.md" ]] || { echo "FAIL: expected report"; exit 1; }
+rg -q -e 'WARNING|seeds_minimum_failed|quality_degraded' "AGENTS/tasks/$TASK3/review/paper_profile_update_report.md" || { echo "FAIL: expected warnings in report"; exit 1; }
 
-echo "[4/4] paper_profile_update failfast: bib without abstracts and online_lookup=false"
+echo "[4/4] paper_profile_update resilient mode: bib without abstracts and online_lookup=false"
 PAPER_B="$(mktemp -d /tmp/failfast_paper_b_XXXX)"
 cat > "$PAPER_B/main.tex" <<'EOF'
 \documentclass{article}
@@ -93,15 +87,12 @@ cat > "$PAPER_B/refs.bib" <<'EOF'
 }
 EOF
 TASK4="$(./bin/agenthub start --skill paper_profile_update --task-name "test_failfast_profile_b_${RUN_TAG}" --request "$REQ_DIR/minimal.md" | extract_task)"
-set +e
-OUT4="$(PAPER_PROFILE_USER_PAPER="$PAPER_B" ./bin/agenthub run --task "$TASK4" 2>&1)"
-RC4=$?
-set -e
+OUT4="$(PAPER_PROFILE_USER_PAPER="$PAPER_B" ./bin/agenthub run --task "$TASK4" --yes 2>&1)"
 printf '%s\n' "$OUT4"
-[[ "$RC4" -ne 0 ]] || { echo "FAIL: expected non-zero"; exit 1; }
-assert_error_md "$TASK4"
-ERR4="AGENTS/tasks/$TASK4/review/error.md"
-rg -q 'seed_papers\(complete>=3\)' "$ERR4" || { echo "FAIL: missing seed requirement in error.md"; exit 1; }
-rg -q 'online_lookup=true' "$ERR4" || { echo "FAIL: expected online_lookup=true guidance in next_actions"; exit 1; }
+REPORT4="AGENTS/tasks/$TASK4/review/paper_profile_update_report.md"
+[[ -f "$REPORT4" ]] || { echo "FAIL: expected report"; exit 1; }
+rg -Fq 'ranked by relevance' "$REPORT4" || { echo "FAIL: expected seed summary line"; exit 1; }
+rg -q -e 'WARNING|seeds_minimum_failed|quality_degraded' "$REPORT4" || { echo "FAIL: expected warnings"; exit 1; }
+[[ -f "GATE/staged/$TASK4/paper_profile_update/paper_profile.json" ]] || { echo "FAIL: expected staged profile even with warnings"; exit 1; }
 
 echo "PASS: fail-fast error handling tests passed"

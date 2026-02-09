@@ -57,7 +57,7 @@ EOF
 export PAPER_DIR
 export REFS_DIR
 
-echo "[1/2] run without --yes/--no in non-interactive shell (expect failure)"
+echo "[1/2] run without --yes/--no in non-interactive shell (expect success with safe defaults)"
 set +e
 OUT1="$(python3 - <<'PY'
 import os
@@ -69,6 +69,11 @@ cp = subprocess.run(
     stdin=subprocess.DEVNULL,
     text=True,
     capture_output=True,
+    env={
+        **os.environ,
+        "PAPER_PROFILE_USER_PAPER": os.environ["PAPER_DIR"],
+        "PAPER_PROFILE_USER_REFS_FOR_SEEDS": os.environ["REFS_DIR"],
+    },
 )
 print(f"RC={cp.returncode}")
 if cp.stdout.strip():
@@ -82,12 +87,12 @@ PY
 RC1=$?
 set -e
 printf '%s\n' "$OUT1"
-if ! printf '%s\n' "$OUT1" | rg -q 'RC=2'; then
-  echo "FAIL: expected RC=2 without --yes/--no" >&2
+if ! printf '%s\n' "$OUT1" | rg -q 'RC=0'; then
+  echo "FAIL: expected RC=0 without --yes/--no" >&2
   exit 1
 fi
-if ! printf '%s\n' "$OUT1" | rg -q 'Non-interactive shell\. Re-run with --yes or --no\.'; then
-  echo "FAIL: missing non-interactive guidance" >&2
+if ! printf '%s\n' "$OUT1" | rg -q 'Staged Dir: GATE/staged/'; then
+  echo "FAIL: expected auto-staging to GATE" >&2
   exit 1
 fi
 
@@ -130,8 +135,8 @@ if ! printf '%s\n' "$OUT2" | rg -q 'REPORT_EXISTS=True'; then
   echo "FAIL: expected paper_profile_update report output" >&2
   exit 1
 fi
-if printf '%s\n' "$OUT2" | rg -q 'Non-interactive shell\. Re-run with --yes or --no\.'; then
-  echo "FAIL: --yes path re-emitted non-interactive error" >&2
+if ! printf '%s\n' "$OUT2" | rg -q 'Staged Dir: GATE/staged/'; then
+  echo "FAIL: expected staged dir in --yes output" >&2
   exit 1
 fi
 

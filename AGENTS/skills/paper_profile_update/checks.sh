@@ -28,25 +28,27 @@ p = json.load(open("$PROFILE_JSON"))
 assert isinstance(p.get("source_files", {}), dict)
 assert "tex" in p["source_files"]
 assert "bib" in p["source_files"]
-assert isinstance(p.get("inputs_used", {}), dict)
-for k in ["paper_tex", "notes", "references", "bib"]:
-    assert k in p["inputs_used"], k
-assert isinstance(p.get("extraction", {}), dict)
-req = ["keywords", "bigrams", "trigrams", "structured_phrases", "categories", "short_blurb", "related_work_themes", "seed_papers", "unresolved_cites"]
+assert "references_for_seeds" in p["source_files"]
+assert "references_general" in p["source_files"]
+req = ["keywords", "bigrams", "trigrams", "structured_phrases", "categories", "short_blurb", "related_work_themes", "seed_summary", "seed_papers", "warnings"]
 for k in req:
     assert k in p["profile"], k
 assert p["profile"].get("field", "").strip() != "", "field missing"
 assert float(p["profile"].get("field_confidence", 0)) >= 0.0
 assert isinstance(p["profile"].get("field_evidence_terms", []), list)
+assert len(p["profile"].get("seed_papers", [])) <= 5, "seed_papers exceeds cap"
+summary = p["profile"].get("seed_summary", {})
+assert isinstance(summary, dict), "seed_summary missing"
+assert "found" in summary and "emitted" in summary and "status" in summary
 for s in p["profile"].get("seed_papers", []):
     assert str(s.get("title", "")).strip() != "", "seed title missing"
     assert isinstance(s.get("authors", []), list) and len(s.get("authors", [])) >= 1, "seed authors missing"
-    assert str(s.get("abstract", "")).strip() != "", "seed abstract missing"
-    assert str(s.get("link", "")).startswith(("http://", "https://")), "seed link invalid"
+    comp = str(s.get("completeness", "COMPLETE")).upper()
+    assert comp in {"COMPLETE", "PARTIAL", "INVALID"}, "invalid completeness"
 
-has_seed_sources = bool(p["inputs_used"].get("references") or p["inputs_used"].get("bib"))
+has_seed_sources = bool(p["source_files"].get("references_for_seeds") or p["source_files"].get("references_general") or p["source_files"].get("bib"))
 if has_seed_sources:
-    assert len(p["profile"].get("seed_papers", [])) >= 3, "seed_papers minimum not met"
+    assert len(p["profile"].get("seed_papers", [])) >= 1, "expected at least one seed when sources exist"
 print("PROFILE_SCHEMA=ok")
 PY
 fi

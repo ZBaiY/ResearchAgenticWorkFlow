@@ -66,7 +66,7 @@ OUT2="$(PAPER_PROFILE_USER_PAPER="$PAPER_DIR" PAPER_PROFILE_USER_REFS_FOR_SEEDS=
 printf '%s\n' "$OUT2"
 assert_contains "$OUT2" '^MODE=FULL_AGENT$'
 assert_contains "$OUT2" '^RUN=ok$'
-assert_contains "$OUT2" '^STAGED_TO_GATE=no$'
+assert_contains "$OUT2" '^STAGED_TO_GATE=yes$'
 
 TASK2="$(printf '%s\n' "$OUT2" | sed -n 's/^TASK=//p' | head -n1)"
 if [[ -z "$TASK2" ]]; then

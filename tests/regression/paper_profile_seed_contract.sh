@@ -47,24 +47,42 @@ Neutrino phenomenology and ultralight dark matter coupling constraints.
 EOF
 
   # PDF surrogate (plain text named .pdf) to exercise pdf path.
-  cat > "$refs/ref_pdf_surrogate.pdf" <<'EOF'
+  if [[ "$force_net_fail" == "yes" ]]; then
+    cat > "$refs/ref_pdf_surrogate.pdf" <<'EOF'
+PDF SURROGATE TITLE
+Authors: Carol Roe
+arXiv:2408.33333
+EOF
+    cat > "$refs/ref2.txt" <<'EOF'
+Dark matter flavor conversion review
+Authors: Dan Poe
+arXiv:2408.44444
+EOF
+    cat > "$refs/ref3.txt" <<'EOF'
+Long baseline neutrino constraints
+Authors: Erin Moe
+arXiv:2408.55555
+EOF
+  else
+    cat > "$refs/ref_pdf_surrogate.pdf" <<'EOF'
 PDF SURROGATE TITLE
 Authors: Carol Roe
 Abstract: This surrogate PDF contains abstract text for valid seed extraction.
 arXiv:2408.33333
 EOF
-  cat > "$refs/ref2.txt" <<'EOF'
+    cat > "$refs/ref2.txt" <<'EOF'
 Dark matter flavor conversion review
 Authors: Dan Poe
 Abstract: Review of flavor conversion and dark matter interactions.
 arXiv:2408.44444
 EOF
-  cat > "$refs/ref3.txt" <<'EOF'
+    cat > "$refs/ref3.txt" <<'EOF'
 Long baseline neutrino constraints
 Authors: Erin Moe
 Abstract: Constraints from long baseline oscillation measurements.
 arXiv:2408.55555
 EOF
+  fi
 
   local req="AGENTS/requests/regression/paper_seed_contract_${tag}.md"
   mkdir -p "$(dirname "$req")"
@@ -84,7 +102,7 @@ EOF
     PAPER_PROFILE_USER_NOTES="$notes" \
     PAPER_PROFILE_USER_REFS_FOR_SEEDS="$refs" \
     PAPER_PROFILE_ARXIV_API_BASE="http://127.0.0.1:9/api" \
-    ./bin/agenthub run --task "$task" --yes --online >/tmp/paper_seed_contract_run_${tag}.out 2>/tmp/paper_seed_contract_run_${tag}.err
+    ./bin/agenthub run --task "$task" --yes --online --net >/tmp/paper_seed_contract_run_${tag}.out 2>/tmp/paper_seed_contract_run_${tag}.err
     rc=$?
   else
     PAPER_PROFILE_USER_PAPER="$paper" \
@@ -99,7 +117,7 @@ EOF
   return $rc
 }
 
-echo "[1/4] missing-abstract bib entry is invalid"
+echo "[1/4] missing-abstract bib entry is allowed (warning-only)"
 run_case "missing_abs" "yes" "false" "no"
 TASK1="$(cat /tmp/paper_seed_contract_task_missing_abs.txt)"
 export TASK1
@@ -112,8 +130,8 @@ task = os.environ["TASK1"]
 p = json.loads(Path(f"AGENTS/tasks/{task}/outputs/paper_profile/paper_profile.json").read_text())
 assert len(p["profile"]["seed_papers"]) >= 3
 bad = [x for x in p["profile"]["seed_papers"] if x.get("title") == "Bad Seed Missing Abstract"]
-assert not bad, "missing-abstract seed should be invalid"
-print("OK missing-abstract invalid")
+assert bad, "missing-abstract seed should still be retained"
+print("OK missing-abstract retained")
 PY
 
 echo "[2/4] pdf with abstract contributes valid seed"
@@ -136,20 +154,17 @@ from pathlib import Path
 
 task = os.environ["TASK1"]
 r = json.loads(Path(f"AGENTS/tasks/{task}/logs/paper_profile_update/resolved_request.json").read_text())
-assert r.get("online_lookup") in (False, None), r
+assert r.get("online_requested") in (False, None), r
 print("OK online disabled")
 PY
 
-echo "[4/4] online_lookup=true with network failure failfast"
-if run_case "net_fail" "yes" "true" "yes"; then
-  echo "FAIL: expected network failfast" >&2
-  exit 1
-fi
+echo "[4/4] online_lookup=true with network failure is warning-only"
+rm -f AGENTS/cache/online_meta/2407.11111.json AGENTS/cache/online_meta/2301.22222.json AGENTS/cache/online_meta/2408.33333.json AGENTS/cache/online_meta/2408.44444.json AGENTS/cache/online_meta/2408.55555.json
+run_case "net_fail" "yes" "true" "yes"
 TASK2="$(cat /tmp/paper_seed_contract_task_net_fail.txt)"
-ERR2="$(cat AGENTS/tasks/$TASK2/logs/paper_profile_update/stderr.log || true)"
-printf '%s\n' "$ERR2"
-if ! printf '%s\n' "$ERR2" | rg -q 'NETWORK_LOOKUP_FAILED'; then
-  echo "FAIL: missing NETWORK_LOOKUP_FAILED" >&2
+REPORT2="AGENTS/tasks/$TASK2/review/paper_profile_update_report.md"
+if ! rg -q 'WARNING NETWORK_UNAVAILABLE|WARNING ONLINE_LOOKUP_FAILED' "$REPORT2"; then
+  echo "FAIL: missing online warning in report" >&2
   exit 1
 fi
 

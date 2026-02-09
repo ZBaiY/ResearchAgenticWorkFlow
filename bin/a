@@ -10,6 +10,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+AUTO_RUN_ON_START_SKILLS = {"paper_profile_update"}
+
 
 def repo_root() -> Path:
     return Path(__file__).resolve().parent.parent
@@ -569,9 +571,9 @@ def main() -> int:
 
         if not args.run:
             if args.yes:
-                print(f"RUN_COMMAND=./bin/agenthub run --task {started_task} --yes")
+                print(f"NEXT_RUN=./bin/agenthub run --task {started_task} --yes")
             elif args.no:
-                print(f"RUN_COMMAND=./bin/agenthub run --task {started_task} --no")
+                print(f"NEXT_RUN=./bin/agenthub run --task {started_task} --no")
             else:
                 print(f"NEXT_RUN=./bin/agenthub run --task {started_task} --no")
             return 0

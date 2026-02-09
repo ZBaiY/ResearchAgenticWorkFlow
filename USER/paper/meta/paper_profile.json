@@ -1,12 +1,155 @@
 {
-  "task_id": "20260209T090235Z_paper_profile_user_exception",
-  "generated_at_utc": "2026-02-09T09:02:49Z",
-  "source_files": [],
-  "profile": {
-    "keywords": ["TBD", "placeholder"],
-    "categories": ["unclassified"],
-    "short_blurb": "No USER/paper/*.tex or USER/notes/*.md were found; generated placeholder profile.",
-    "related_work_themes": ["profile_bootstrap"]
+  "version": "paper_profile_v6",
+  "task_id": "test_promotion_two_phase_20260209T194339Z",
+  "generated_at_utc": "2026-02-09T19:43:40Z",
+  "source_files": {
+    "tex": [
+      "/private/tmp/promo2_paper_o7nD/main.tex"
+    ],
+    "bib": [
+      "/private/tmp/promo2_paper_o7nD/references.bib"
+    ],
+    "references_for_seeds": [
+      "/private/tmp/promo2_refs_t7OW/ref1.txt",
+      "/private/tmp/promo2_refs_t7OW/ref2.txt",
+      "/private/tmp/promo2_refs_t7OW/ref3.txt"
+    ],
+    "references_general": []
   },
-  "notes": "placeholder profile generated due to missing source files"
+  "profile": {
+    "field": "physics",
+    "field_confidence": 0.2,
+    "field_evidence_terms": [],
+    "keywords": [
+      "promotion",
+      "seed",
+      "article"
+    ],
+    "bigrams": [],
+    "trigrams": [],
+    "structured_phrases": [],
+    "categories": [
+      "physics",
+      "manuscript"
+    ],
+    "short_blurb": "Local manuscript profile generated from USER content.",
+    "related_work_themes": [
+      "manuscript_overview",
+      "method_summary",
+      "related_work"
+    ],
+    "seed_summary": {
+      "found": 4,
+      "ranked": 4,
+      "emitted": 4,
+      "min_required": 3,
+      "status": "ok"
+    },
+    "seed_papers": [
+      {
+        "title": "Ref 1",
+        "authors": [
+          "text 1"
+        ],
+        "arxiv_id": "2401.00001",
+        "abstract": "text 1",
+        "link": "https://arxiv.org/abs/2401.00001",
+        "year": null,
+        "doi": null,
+        "source": {
+          "kind": "references_for_seeds",
+          "path": "/private/tmp/promo2_refs_t7OW/ref1.txt"
+        },
+        "source_path": "/private/tmp/promo2_refs_t7OW/ref1.txt",
+        "seed_extraction_evidence": {},
+        "why": [],
+        "cited": false,
+        "completeness": "COMPLETE",
+        "missing_fields": [],
+        "score": 0.0,
+        "why_terms": []
+      },
+      {
+        "title": "Ref 2",
+        "authors": [
+          "text 2"
+        ],
+        "arxiv_id": "2401.00002",
+        "abstract": "text 2",
+        "link": "https://arxiv.org/abs/2401.00002",
+        "year": null,
+        "doi": null,
+        "source": {
+          "kind": "references_for_seeds",
+          "path": "/private/tmp/promo2_refs_t7OW/ref2.txt"
+        },
+        "source_path": "/private/tmp/promo2_refs_t7OW/ref2.txt",
+        "seed_extraction_evidence": {},
+        "why": [],
+        "cited": false,
+        "completeness": "COMPLETE",
+        "missing_fields": [],
+        "score": 0.0,
+        "why_terms": []
+      },
+      {
+        "title": "Ref 3",
+        "authors": [
+          "text 3"
+        ],
+        "arxiv_id": "2401.00003",
+        "abstract": "text 3",
+        "link": "https://arxiv.org/abs/2401.00003",
+        "year": null,
+        "doi": null,
+        "source": {
+          "kind": "references_for_seeds",
+          "path": "/private/tmp/promo2_refs_t7OW/ref3.txt"
+        },
+        "source_path": "/private/tmp/promo2_refs_t7OW/ref3.txt",
+        "seed_extraction_evidence": {},
+        "why": [],
+        "cited": false,
+        "completeness": "COMPLETE",
+        "missing_fields": [],
+        "score": 0.0,
+        "why_terms": []
+      },
+      {
+        "title": "Seed A",
+        "authors": [
+          "Alice One"
+        ],
+        "arxiv_id": null,
+        "abstract": "",
+        "link": "",
+        "year": 2024,
+        "doi": null,
+        "source": {
+          "kind": "bib",
+          "path": "/private/tmp/promo2_paper_o7nD/references.bib"
+        },
+        "source_path": "/private/tmp/promo2_paper_o7nD/references.bib",
+        "why": [
+          "seed"
+        ],
+        "cited": true,
+        "bibkey": "A2024",
+        "completeness": "COMPLETE",
+        "missing_fields": [],
+        "score": 0.0,
+        "why_terms": [
+          "seed"
+        ]
+      }
+    ],
+    "warnings": [
+      "No reference files (.pdf/.txt/.md/.json) found under USER/paper/",
+      "keywords_nontrivial_failed:found=3<required=12;attempts=tfidf:paper+notes+references+bib;fallback:freq_from_full_tex_notes_refs",
+      "keyword_quality_low:mostly_single_tokens_no_strong_phrases",
+      "field_quality_low:generic_field_with_low_confidence",
+      "No USER/notes/ files found (.md/.tex/.txt)",
+      "No additional paper docs (.pdf/.md/.txt/.json) found under USER/paper"
+    ]
+  }
 }

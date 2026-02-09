@@ -49,6 +49,13 @@ def run_cmd(cmd: List[str], cwd: Path) -> subprocess.CompletedProcess:
     return subprocess.run(cmd, cwd=str(cwd), text=True, capture_output=True)
 
 
+def env_truthy(name: str, default: bool = False) -> bool:
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "y", "on"}
+
+
 class NonInteractivePromptError(RuntimeError):
     pass
 
@@ -598,6 +605,89 @@ def parse_detail_lines_from_error_report(root: Path, report_path: str) -> List[s
     return details[:6]
 
 
+def stage_task_outputs(root: Path, task_id: str, skill: str, stage_enabled: bool) -> str:
+    env = os.environ.copy()
+    env["AGENTHUB_STAGE_APPROVAL"] = "yes" if stage_enabled else "no"
+    cp = subprocess.run(
+        [str(root / "AGENTS" / "runtime" / "stage_to_gate.sh"), str(root), task_id, skill],
+        cwd=str(root),
+        env=env,
+        text=True,
+        capture_output=True,
+    )
+    if cp.returncode != 0:
+        msg = (cp.stderr or cp.stdout or "").strip() or "stage_to_gate failed"
+        raise RuntimeError(f"STAGE_TO_GATE_FAILED: {msg}")
+    stage_dir = root / "GATE" / "staged" / task_id / skill
+    return str(stage_dir.relative_to(root)) if stage_dir.exists() else ""
+
+
+def promotion_actions_for_stage(root: Path, task_id: str, skill: str) -> List[Tuple[Path, Path, str]]:
+    staged = root / "GATE" / "staged" / task_id / skill
+    if not staged.exists():
+        return []
+    actions: List[Tuple[Path, Path, str]] = []
+    profile_json = staged / "paper_profile.json"
+    if profile_json.exists():
+        actions.append((profile_json, root / "USER" / "paper" / "meta" / "paper_profile.json", "file"))
+    refs_bib = staged / "review" / "refs.bib"
+    if refs_bib.exists():
+        actions.append((refs_bib, root / "USER" / "paper" / "bib" / f"{task_id}.refs.bib", "file"))
+    src_dir = staged / "deliverable" / "src"
+    if src_dir.exists():
+        actions.append((src_dir, root / "USER" / "src" / "compute" / task_id, "dir"))
+    slides_dir = staged / "deliverable" / "slides"
+    if slides_dir.exists():
+        actions.append((slides_dir, root / "USER" / "presentations" / task_id, "dir"))
+    return actions
+
+
+def write_promotion_preview(root: Path, task_id: str, skill: str) -> Tuple[str, str]:
+    staged_root = root / "GATE" / "staged" / task_id
+    staged_skill = staged_root / skill
+    preview = staged_root / "PROMOTE.md"
+    next_cmd = f"./bin/agenthub promote --task {task_id}"
+
+    actions = promotion_actions_for_stage(root, task_id, skill) if staged_skill.exists() else []
+    lines = [
+        "# Prepare To Promote",
+        "",
+        f"- task_id: {task_id}",
+        f"- skill: {skill}",
+        f"- staged_dir: GATE/staged/{task_id}/{skill}",
+        "",
+        "PROMOTION_STATUS=READY",
+        f"NEXT_PROMOTE_CMD={next_cmd}",
+        f"PROMOTE_PREVIEW_PATH=GATE/staged/{task_id}/PROMOTE.md",
+        "",
+        "## File Mapping (GATE -> USER)",
+    ]
+    if actions:
+        for src, dst, _ in actions:
+            try:
+                src_rel = str(src.relative_to(root))
+            except Exception:
+                src_rel = str(src)
+            try:
+                dst_rel = str(dst.relative_to(root))
+            except Exception:
+                dst_rel = str(dst)
+            lines.append(f"- {src_rel} -> {dst_rel}")
+    else:
+        lines.append("- (no known mappings discovered for this skill)")
+    lines += [
+        "",
+        "## Command",
+        f"- {next_cmd}",
+        "",
+        'Warning: Promotion requires explicit user confirmation. The workflow is paused.',
+        "",
+    ]
+    staged_root.mkdir(parents=True, exist_ok=True)
+    preview.write_text("\n".join(lines), encoding="utf-8")
+    return str(preview.relative_to(root)), next_cmd
+
+
 def print_error_summary(root: Path, err: Exception, report_path: str) -> None:
     short = str(err).strip().splitlines()[0] if str(err).strip() else err.__class__.__name__
     if len(short) > 140:
@@ -609,9 +699,41 @@ def print_error_summary(root: Path, err: Exception, report_path: str) -> None:
     missing = parse_missing_from_error_report(root, report_path)
     if missing:
         print(f"MISSING={missing}", file=sys.stderr)
-    for d in parse_detail_lines_from_error_report(root, report_path):
-        print(d, file=sys.stderr)
     print("EXIT=nonzero", file=sys.stderr)
+
+
+def prompt_yes_no_fuzzy_tty(prompt: str) -> Tuple[bool, bool]:
+    try:
+        with open("/dev/tty", "r+", encoding="utf-8") as tty:
+            tty.write(prompt)
+            tty.flush()
+            ans = tty.readline().strip().lower()
+            if ans in {"yes", "y", "yeah", "ok", "sure", "1", "promote"}:
+                return True, False
+            if ans in {"no", "n", "stop", "0", "cancel", ""}:
+                return False, False
+            tty.write(prompt)
+            tty.flush()
+            ans2 = tty.readline().strip().lower()
+            if ans2 in {"yes", "y", "yeah", "ok", "sure", "1", "promote"}:
+                return True, False
+            return False, False
+    except Exception:
+        try:
+            ans = input(prompt).strip().lower()
+        except EOFError:
+            return False, True
+        if ans in {"yes", "y", "yeah", "ok", "sure", "1", "promote"}:
+            return True, False
+        if ans in {"no", "n", "stop", "0", "cancel", ""}:
+            return False, False
+        try:
+            ans2 = input(prompt).strip().lower()
+        except EOFError:
+            return False, True
+        if ans2 in {"yes", "y", "yeah", "ok", "sure", "1", "promote"}:
+            return True, False
+        return False, False
 
 
 def cmd_run(root: Path, args: argparse.Namespace) -> int:
@@ -633,25 +755,18 @@ def cmd_run(root: Path, args: argparse.Namespace) -> int:
 
         if args.yes and args.no:
             raise RuntimeError("Use only one of --yes or --no.")
+        if args.stage_gate and args.no_stage_gate:
+            raise RuntimeError("Use only one of --stage-gate or --no-stage-gate.")
 
         interactive_tty = sys.stdin.isatty()
+        agent_mode_on = bool(args.agent_mode or env_truthy("AGENT_MODE", False))
+        auto_promote_user = bool(args.auto_promote_user or env_truthy("AUTO_PROMOTE_USER", False))
+        if not agent_mode_on:
+            auto_promote_user = False
 
-        approval_mode = "interactive"
-        if args.yes:
-            approval_mode = "yes"
-        elif args.no:
-            approval_mode = "no"
-        elif not interactive_tty:
-            approval_mode = "no"
-
-        phase = "prompt"
-        if approval_mode == "interactive":
-            ok, interactive_error = prompt_yes_no("Proceed with run? [y/N]: ")
-            if interactive_error:
-                raise NonInteractivePromptError("Non-interactive shell. Re-run with --yes or --no.")
-            if not ok:
-                print("ABORTED=true")
-                return 1
+        # Run is non-interactive by design; approval_mode defaults to "no"
+        # unless explicitly set to --yes.
+        approval_mode = "yes" if args.yes else "no"
 
         phase = "skill_run"
         env = os.environ.copy()
@@ -659,7 +774,8 @@ def cmd_run(root: Path, args: argparse.Namespace) -> int:
         env["APPROVAL_INTERACTIVE"] = "1" if interactive_tty else "0"
         env["ALLOW_USER_WRITE"] = "1" if args.write_user else "0"
         env["SKILL_CLARIFICATION_POLICY"] = skill_clarification_policy(root, skill, smeta)
-        env["ONLINE_LOOKUP"] = "1" if (args.online or args.net) else "0"
+        env["ONLINE_LOOKUP"] = "1" if args.online else "0"
+        env["NET_ALLOWED"] = "1" if args.net else "0"
         cp = subprocess.run(
             [str(root / "bin" / "agentctl"), "run", skill, "--task", task_id],
             cwd=str(root),
@@ -668,31 +784,41 @@ def cmd_run(root: Path, args: argparse.Namespace) -> int:
             capture_output=True,
         )
         if cp.returncode != 0:
+            if cp.stdout.strip():
+                print(cp.stdout.strip())
             raise SkillSubprocessError(skill=skill, returncode=cp.returncode, stdout=cp.stdout, stderr=cp.stderr)
         if cp.stdout.strip():
             print(cp.stdout.strip())
         if cp.stderr.strip():
             print(cp.stderr.strip(), file=sys.stderr)
 
+        phase = "stage"
+        if args.no_stage_gate:
+            print("NOTE=--no-stage-gate ignored; staging is mandatory on successful runs.")
+        stage_enabled = True
+        staged_dir = stage_task_outputs(root, task_id, skill, stage_enabled=stage_enabled)
+
         phase = "summary"
         patch, report, result, staged = resolve_output_paths(root, task_id, smeta, skill)
+        if staged_dir:
+            staged = staged_dir
         review_dir = f"AGENTS/tasks/{task_id}/review"
-        promotion_hint = ""
-        stage_md = f"GATE/staged/{task_id}/STAGE.md"
-        if (root / stage_md).exists():
-            promotion_hint = stage_md
-        else:
-            promo = f"AGENTS/tasks/{task_id}/deliverable/promotion_instructions.md"
-            if (root / promo).exists():
-                promotion_hint = promo
 
-        print(f"Task: {task_id}")
-        print(f"- Review Dir: {review_dir if (root / review_dir).exists() else 'NONE'}")
-        print(f"- Report: {report}")
-        print(f"- Patch: {patch}")
-        print(f"- Result: {result}")
-        print(f"- Staged Dir: {staged or 'NONE'}")
-        print(f"- Promotion Hint: {promotion_hint or 'NONE'}")
+        print(f"TASK_ID: {task_id}")
+        print(f"SKILL: {skill}")
+        print(f"REVIEW_DIR_PATH: {review_dir if (root / review_dir).exists() else 'NONE'}")
+        print(f"REPORT_PATH: {report}")
+        print(f"OUTPUT_PATH: {result}")
+        print(f"STAGED_DIR_PATH: {staged or 'NONE'}")
+        print(f"AGENT_MODE={'on' if agent_mode_on else 'off'}")
+        print(f"AUTO_PROMOTE_USER={'on' if auto_promote_user else 'off'}")
+
+        phase = "promotion"
+        preview_path, _next_cmd = write_promotion_preview(root, task_id, skill)
+        print("PROMOTION_STATUS=READY")
+        print(f"PROMOTE_PLAN_PATH: {preview_path}")
+        print("PROMOTION_PENDING: true")
+        print("PROMOTE_INSTRUCTIONS: Use the promote subcommand when ready.")
         return 0
     except Exception as err:
         skill_error = tasks_dir(root) / task_id / "review" / "error.md"
@@ -704,12 +830,91 @@ def cmd_run(root: Path, args: argparse.Namespace) -> int:
         return 2
 
 
+def cmd_promote(root: Path, args: argparse.Namespace) -> int:
+    task_id = args.task
+    staged_root = root / "GATE" / "staged" / task_id
+    if not staged_root.exists():
+        print(f"PROMOTE_TO_USER=blocked reason=missing_staged_task task={task_id}", file=sys.stderr)
+        return 2
+
+    interactive_tty = sys.stdin.isatty()
+    if args.yes and args.no:
+        print("ERROR=Use only one of --yes or --no.", file=sys.stderr)
+        return 2
+    if args.no:
+        print("PROMOTE_TO_USER=skipped reason=user_declined")
+        return 0
+
+    confirmed_yes = bool(args.yes)
+    if interactive_tty and not confirmed_yes:
+        answer, interactive_error = prompt_yes_no_fuzzy_tty("PROMOTE_TO_USER? [y/N]")
+        if interactive_error:
+            print("PROMOTE_TO_USER=blocked reason=interactive_prompt_failed", file=sys.stderr)
+            return 2
+        if not answer:
+            print("PROMOTE_TO_USER=skipped reason=user_declined")
+            return 0
+        confirmed_yes = True
+
+    if not interactive_tty:
+        if not (args.yes and args.allow_user_write_noninteractive):
+            next_cmd = (
+                f"./bin/agenthub promote --task {task_id} "
+                "--yes --allow-user-write-noninteractive"
+            )
+            print(f"PROMOTE_TO_USER=skipped reason=noninteractive_requires_explicit_flags NEXT={next_cmd}")
+            return 0
+
+    cmd = ["bash", "AGENTS/runtime/promote_to_user.sh", "--task", task_id]
+    if confirmed_yes:
+        cmd.append("--yes")
+    if not interactive_tty and args.allow_user_write_noninteractive:
+        cmd.append("--allow-user-write-noninteractive")
+    cp = subprocess.run(cmd, cwd=str(root), text=True, capture_output=True)
+    if cp.returncode != 0:
+        msg = (cp.stderr or cp.stdout or "promotion failed").strip()
+        print(f"PROMOTE_TO_USER=blocked reason={msg}", file=sys.stderr)
+        return 2
+    targets = []
+    receipt = ""
+    for line in cp.stdout.splitlines():
+        t = line.strip()
+        if t.startswith("PROMOTED_TARGET="):
+            targets.append(t.split("=", 1)[1].strip())
+        if t.startswith("PROMOTION_RECEIPT="):
+            receipt = t.split("=", 1)[1].strip()
+    target = targets[0] if targets else "unknown"
+    print(f"PROMOTE_TO_USER=done target={target}")
+    if receipt:
+        print(f"PROMOTION_RECEIPT={receipt}")
+    return 0
+
+
 def prompt_yes_no(prompt: str) -> Tuple[bool, bool]:
     try:
         ans = input(prompt).strip().lower()
     except EOFError:
         return False, True
     return ans in {"y", "yes"}, False
+
+
+def prompt_yes_no_fuzzy(prompt: str) -> Tuple[bool, bool]:
+    try:
+        ans = input(prompt).strip().lower()
+    except EOFError:
+        return False, True
+    if ans in {"yes", "y", "yeah", "ok", "sure", "1", "promote"}:
+        return True, False
+    if ans in {"no", "n", "stop", "0", "cancel", ""}:
+        return False, False
+    # ambiguous: ask once more, then default NO
+    try:
+        ans2 = input(prompt).strip().lower()
+    except EOFError:
+        return False, True
+    if ans2 in {"yes", "y", "yeah", "ok", "sure", "1", "promote"}:
+        return True, False
+    return False, False
 
 
 def cmd_doctor(root: Path) -> int:
@@ -777,6 +982,17 @@ def main() -> int:
     prun.add_argument("--write-user", action="store_true")
     prun.add_argument("--online", action="store_true")
     prun.add_argument("--net", action="store_true")
+    prun.add_argument("--stage-gate", action="store_true")
+    prun.add_argument("--no-stage-gate", action="store_true")
+    prun.add_argument("--agent-mode", action="store_true")
+    prun.add_argument("--auto-promote-user", action="store_true")
+    prun.add_argument("--allow-user-write-noninteractive", action="store_true")
+
+    ppromote = sub.add_parser("promote")
+    ppromote.add_argument("--task", required=True)
+    ppromote.add_argument("--yes", action="store_true")
+    ppromote.add_argument("--no", action="store_true")
+    ppromote.add_argument("--allow-user-write-noninteractive", action="store_true")
 
     pname = sub.add_parser("task-name")
     pname.add_argument("--skill", required=True)
@@ -793,6 +1009,8 @@ def main() -> int:
         return cmd_start(root, args)
     if args.cmd == "run":
         return cmd_run(root, args)
+    if args.cmd == "promote":
+        return cmd_promote(root, args)
     if args.cmd == "task-name":
         print(f"TASK_NAME={default_task_name(args.skill)}")
         return 0
