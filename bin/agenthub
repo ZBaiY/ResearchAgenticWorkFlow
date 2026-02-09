@@ -331,9 +331,11 @@ def infer_skill(root: Path, task_id: str) -> str:
     return ""
 
 
-def resolve_output_paths(root: Path, task_id: str, skill_meta: Dict[str, Any]) -> Tuple[str, str]:
+def resolve_output_paths(root: Path, task_id: str, skill_meta: Dict[str, Any], skill: str) -> Tuple[str, str, str, str]:
     patch = "NONE"
     report = "NONE"
+    result = "NONE"
+    staged = ""
     outputs = skill_meta.get("outputs", []) or []
     for item in outputs:
         if "patch" in item:
@@ -362,7 +364,16 @@ def resolve_output_paths(root: Path, task_id: str, skill_meta: Dict[str, Any]) -
             files = sorted(rdir.glob("*.md"))
             if files:
                 report = str(files[0].relative_to(root))
-    return patch, report
+    compute_result = f"AGENTS/tasks/{task_id}/outputs/compute/result.json"
+    lit_candidates = f"AGENTS/tasks/{task_id}/outputs/lit/raw_candidates.jsonl"
+    if (root / compute_result).exists():
+        result = compute_result
+    elif (root / lit_candidates).exists():
+        result = lit_candidates
+    stage_dir = f"GATE/staged/{task_id}/{skill}"
+    if (root / stage_dir).exists():
+        staged = stage_dir
+    return patch, report, result, staged
 
 
 def cmd_run(root: Path, args: argparse.Namespace) -> int:
@@ -388,8 +399,24 @@ def cmd_run(root: Path, args: argparse.Namespace) -> int:
     if cp.returncode != 0:
         return cp.returncode
 
-    patch, report = resolve_output_paths(root, task_id, smeta)
-    print(f"TASK={task_id} SKILL={skill} PATCH={patch} REPORT={report}")
+    patch, report, result, staged = resolve_output_paths(root, task_id, smeta, skill)
+    review_dir = f"AGENTS/tasks/{task_id}/review"
+    promotion_hint = ""
+    stage_md = f"GATE/staged/{task_id}/STAGE.md"
+    if (root / stage_md).exists():
+        promotion_hint = stage_md
+    else:
+        promo = f"AGENTS/tasks/{task_id}/deliverable/promotion_instructions.md"
+        if (root / promo).exists():
+            promotion_hint = promo
+
+    print(f"TASK_ID={task_id}")
+    print(f"REVIEW_DIR={review_dir if (root / review_dir).exists() else ''}")
+    print(f"STAGED_DIR={staged}")
+    print(f"PROMOTION_HINT={promotion_hint}")
+    print(f"PATCH={patch}")
+    print(f"REPORT={report}")
+    print(f"RESULT={result}")
     return 0
 
 

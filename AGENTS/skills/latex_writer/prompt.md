@@ -18,7 +18,8 @@ You are a LaTeX writer/editor agent.
 
 ## Governance and Path Policy
 - `USER/` is read-only.
-- `GATE/` is user-owned and must not be modified.
+- `GATE/` may only be written under `GATE/staged/` for consented staging; no other `GATE/` writes.
+- `USER/` is never modified by agents.
 - Write only under `AGENTS/tasks/<task_id>/...`.
 - Build and edit only in shadow copy:
   `AGENTS/tasks/<task_id>/work/paper_shadow/paper/`.

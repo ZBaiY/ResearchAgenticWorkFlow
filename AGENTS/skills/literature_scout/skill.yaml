@@ -1,17 +1,21 @@
 name: literature_scout
 title: Literature Scout
-description: Build reading lists and bibliography seeds for a research task.
+description: Multi-method literature retrieval with keyword search, seed graph expansion, and external ingestion.
 keywords:
   - literature
   - papers
   - bibliography
   - references
+  - keyword_search
+  - seed_graph
+  - external_search
 outputs:
-  - review: "AGENTS/tasks/<task_id>/review/reading_list.md"
+  - review: "AGENTS/tasks/<task_id>/review/literature_scout_report.md"
   - patch: "AGENTS/tasks/<task_id>/deliverable/patchset/patch.diff"
 requires_network: true
 preferred_runner:
   - codex
-risk: low
+risk: medium
 confirmations:
-  - May rely on external search tools if available.
+  - May call official APIs (arXiv/INSPIRE/Semantic Scholar) within configured budget.
+  - If method is missing, interactive method selection prompt will appear.

@@ -1,0 +1,20 @@
+name: paper_profile_update
+title: Paper Profile Update
+description: Build/update a paper metadata profile (keywords, categories, short blurb, themes) from USER paper/notes and stage to GATE on consent.
+keywords:
+  - paper profile
+  - metadata
+  - keywords
+  - categories
+  - tags
+  - abstract blurb
+  - related work themes
+outputs:
+  - review: "AGENTS/tasks/<task_id>/review/paper_profile_update_report.md"
+requires_network: false
+preferred_runner:
+  - codex
+risk: medium
+confirmations:
+  - By default this skill does not write USER and stages to GATE only on consent.
+  - Optional write_to_user=true requires explicit WRITE USER confirmation.

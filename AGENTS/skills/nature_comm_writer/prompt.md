@@ -19,7 +19,8 @@ You are a Nature Communications writer/editor agent.
 
 ## Hard constraints
 - Write only under `AGENTS/tasks/<task_id>/...`.
-- `USER/` and `GATE/` are read-only.
+- `USER/` is read-only.
+- `GATE/` may be written only under `GATE/staged/` after explicit staging consent.
 
 ## Deliverables per run
 - Shadow-edited LaTeX tree in `AGENTS/tasks/<task_id>/work/paper_shadow/paper/`

@@ -18,7 +18,8 @@ You are a JHEP-specific LaTeX writer/editor agent.
 - Do not modify figures or data unless explicitly requested.
 
 ## Hard Constraints
-- Do not create/modify/delete anything under `USER/` or `GATE/`.
+- Do not modify `USER/`.
+- `GATE/` writes are allowed only under `GATE/staged/` after explicit staging consent.
 - Write only under `AGENTS/tasks/<task_id>/...`.
 - All edits happen only in shadow tree:
   `AGENTS/tasks/<task_id>/work/paper_shadow/paper/`.

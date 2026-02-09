@@ -1,0 +1,12 @@
+{
+  "task_id": "20260209T090152Z_paper_profile_default",
+  "generated_at_utc": "2026-02-09T09:02:19Z",
+  "source_files": [],
+  "profile": {
+    "keywords": ["TBD", "placeholder"],
+    "categories": ["unclassified"],
+    "short_blurb": "No USER/paper/*.tex or USER/notes/*.md were found; generated placeholder profile.",
+    "related_work_themes": ["profile_bootstrap"]
+  },
+  "notes": "placeholder profile generated due to missing source files"
+}

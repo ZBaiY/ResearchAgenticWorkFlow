@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "slide_preparation_artifacts",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "task_id": {"type": "string"},
+    "skill": {"type": "string", "const": "slide_preparation"},
+    "resolved_request": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "project_context": {"type": "object"},
+        "talk": {"type": "object"},
+        "deck": {"type": "object"},
+        "export": {"type": "object"}
+      }
+    },
+    "review_outputs": {
+      "type": "array",
+      "items": {"type": "string"}
+    },
+    "exported": {"type": "boolean"},
+    "generated_pptx": {"type": "boolean"},
+    "cleanup": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "scratch_removed": {"type": "boolean"},
+        "build_removed": {"type": "boolean"}
+      },
+      "required": ["scratch_removed", "build_removed"]
+    }
+  },
+  "required": ["task_id", "skill", "resolved_request", "review_outputs", "exported", "generated_pptx", "cleanup"]
+}

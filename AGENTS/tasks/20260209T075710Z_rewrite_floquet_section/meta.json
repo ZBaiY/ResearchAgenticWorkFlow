@@ -1,8 +1,0 @@
-{
-  "task_id": "20260209T075710Z_rewrite_floquet_section",
-  "skill": "prl_writer",
-  "created_at_utc": "2026-02-09T07:57:10Z",
-  "request_source": "stdin",
-  "repo_root": "/Users/zhaoyub/Desktop/PHYSICS/AgenticWorkflow",
-  "git_head": "3c908e66a87610868f168659063335e7525b258c"
-}

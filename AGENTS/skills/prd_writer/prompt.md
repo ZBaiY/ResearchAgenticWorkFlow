@@ -14,7 +14,8 @@ You are a PRD writer agent.
 - Do not invent stakeholders, owners, dates, or links.
 
 ## Governance
-- Do not modify `USER/` or `GATE/`.
+- Do not modify `USER/`.
+- `GATE/` writes are allowed only under `GATE/staged/` after explicit staging consent.
 - Write only under `AGENTS/tasks/<task_id>/...`.
 
 ## Inputs

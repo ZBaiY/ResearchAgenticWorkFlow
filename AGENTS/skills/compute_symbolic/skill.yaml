@@ -1,0 +1,17 @@
+name: compute_symbolic
+title: Symbolic Compute (Mathematica)
+description: Run symbolic computations with wolframscript/math and export source on consent.
+keywords:
+  - compute
+  - symbolic
+  - mathematica
+  - wolfram
+outputs:
+  - review: "AGENTS/tasks/<task_id>/review/compute_symbolic_report.md"
+  - patch: "AGENTS/tasks/<task_id>/deliverable/patchset/patch.diff"
+requires_network: false
+preferred_runner:
+  - codex
+risk: medium
+confirmations:
+  - Executes Wolfram symbolic code in task sandbox and may prompt for source export.

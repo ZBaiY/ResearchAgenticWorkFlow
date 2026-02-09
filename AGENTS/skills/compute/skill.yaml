@@ -1,6 +1,6 @@
 name: compute
-title: Compute Job Scaffold
-description: Generate reproducible compute jobs and runtime outputs for a task.
+title: Compute Job Scaffold (Deprecated)
+description: Deprecated generic compute skill; use compute_numerical or compute_symbolic instead.
 keywords:
   - compute
   - simulation
@@ -14,4 +14,4 @@ preferred_runner:
   - codex
 risk: medium
 confirmations:
-  - Running compute jobs may consume CPU and create outputs under AGENTS/tasks.
+  - Deprecated skill. Prefer compute_numerical (Python) or compute_symbolic (Mathematica).

@@ -9,7 +9,8 @@ Audit ONLY:
 Do NOT:
 - check calculations
 - invent missing content
-- modify USER/ or GATE/
+- modify `USER/`
+- write to `GATE/` outside `GATE/staged/`
 
 Output:
 - AGENTS/tasks/<task_id>/review/referee_report.md

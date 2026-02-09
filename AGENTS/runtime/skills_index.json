@@ -1,12 +1,12 @@
 {
-  "generated_at_utc": "2026-02-09T07:57:04Z",
+  "generated_at_utc": "2026-02-09T09:01:52Z",
   "repo_root": "/Users/zhaoyub/Desktop/PHYSICS/AgenticWorkflow",
   "skills": [
     {
       "name": "compute",
       "path": "AGENTS/skills/compute",
-      "title": "Compute Job Scaffold",
-      "description": "Generate reproducible compute jobs and runtime outputs for a task.",
+      "title": "Compute Job Scaffold (Deprecated)",
+      "description": "Deprecated generic compute skill; use compute_numerical or compute_symbolic instead.",
       "keywords": [
         "compute",
         "simulation",
@@ -27,7 +27,71 @@
       ],
       "risk": "medium",
       "confirmations": [
-        "Running compute jobs may consume CPU and create outputs under AGENTS/tasks."
+        "Deprecated skill. Prefer compute_numerical (Python) or compute_symbolic (Mathematica)."
+      ],
+      "has_run_sh": true,
+      "has_prompt_md": true,
+      "degraded": false,
+      "warnings": []
+    },
+    {
+      "name": "compute_numerical",
+      "path": "AGENTS/skills/compute_numerical",
+      "title": "Numerical Compute (Python)",
+      "description": "Run numerical computations in Python with reproducibility logs and export-on-consent flow.",
+      "keywords": [
+        "compute",
+        "numerical",
+        "python",
+        "sanity checks"
+      ],
+      "outputs": [
+        {
+          "review": "AGENTS/tasks/<task_id>/review/compute_numerical_report.md"
+        },
+        {
+          "patch": "AGENTS/tasks/<task_id>/deliverable/patchset/patch.diff"
+        }
+      ],
+      "requires_network": false,
+      "preferred_runner": [
+        "codex"
+      ],
+      "risk": "medium",
+      "confirmations": [
+        "Executes Python code in task sandbox and may prompt for source export."
+      ],
+      "has_run_sh": true,
+      "has_prompt_md": true,
+      "degraded": false,
+      "warnings": []
+    },
+    {
+      "name": "compute_symbolic",
+      "path": "AGENTS/skills/compute_symbolic",
+      "title": "Symbolic Compute (Mathematica)",
+      "description": "Run symbolic computations with wolframscript/math and export source on consent.",
+      "keywords": [
+        "compute",
+        "symbolic",
+        "mathematica",
+        "wolfram"
+      ],
+      "outputs": [
+        {
+          "review": "AGENTS/tasks/<task_id>/review/compute_symbolic_report.md"
+        },
+        {
+          "patch": "AGENTS/tasks/<task_id>/deliverable/patchset/patch.diff"
+        }
+      ],
+      "requires_network": false,
+      "preferred_runner": [
+        "codex"
+      ],
+      "risk": "medium",
+      "confirmations": [
+        "Executes Wolfram symbolic code in task sandbox and may prompt for source export."
       ],
       "has_run_sh": true,
       "has_prompt_md": true,
@@ -165,16 +229,19 @@
       "name": "literature_scout",
       "path": "AGENTS/skills/literature_scout",
       "title": "Literature Scout",
-      "description": "Build reading lists and bibliography seeds for a research task.",
+      "description": "Multi-method literature retrieval with keyword search, seed graph expansion, and external ingestion.",
       "keywords": [
         "literature",
         "papers",
         "bibliography",
-        "references"
+        "references",
+        "keyword_search",
+        "seed_graph",
+        "external_search"
       ],
       "outputs": [
         {
-          "review": "AGENTS/tasks/<task_id>/review/reading_list.md"
+          "review": "AGENTS/tasks/<task_id>/review/literature_scout_report.md"
         },
         {
           "patch": "AGENTS/tasks/<task_id>/deliverable/patchset/patch.diff"
@@ -184,9 +251,10 @@
       "preferred_runner": [
         "codex"
       ],
-      "risk": "low",
+      "risk": "medium",
       "confirmations": [
-        "May rely on external search tools if available."
+        "May call official APIs (arXiv/INSPIRE/Semantic Scholar) within configured budget.",
+        "If method is missing, interactive method selection prompt will appear."
       ],
       "has_run_sh": true,
       "has_prompt_md": true,
@@ -219,6 +287,39 @@
       "risk": "medium",
       "confirmations": [
         "Emphasizes narrative and clarity without changing scientific meaning."
+      ],
+      "has_run_sh": true,
+      "has_prompt_md": true,
+      "degraded": false,
+      "warnings": []
+    },
+    {
+      "name": "paper_profile_update",
+      "path": "AGENTS/skills/paper_profile_update",
+      "title": "Paper Profile Update",
+      "description": "Build/update a paper metadata profile (keywords, categories, short blurb, themes) from USER paper/notes and stage to GATE on consent.",
+      "keywords": [
+        "paper profile",
+        "metadata",
+        "keywords",
+        "categories",
+        "tags",
+        "abstract blurb",
+        "related work themes"
+      ],
+      "outputs": [
+        {
+          "review": "AGENTS/tasks/<task_id>/review/paper_profile_update_report.md"
+        }
+      ],
+      "requires_network": false,
+      "preferred_runner": [
+        "codex"
+      ],
+      "risk": "medium",
+      "confirmations": [
+        "By default this skill does not write USER and stages to GATE only on consent.",
+        "Optional write_to_user=true requires explicit WRITE USER confirmation."
       ],
       "has_run_sh": true,
       "has_prompt_md": true,
@@ -315,6 +416,44 @@
       "risk": "medium",
       "confirmations": [
         "Review may include hard rejection-level findings."
+      ],
+      "has_run_sh": true,
+      "has_prompt_md": true,
+      "degraded": false,
+      "warnings": []
+    },
+    {
+      "name": "slide_preparation",
+      "path": "AGENTS/skills/slide_preparation",
+      "title": "Slide Preparation",
+      "description": "Create talk slide deck skeleton (outline + notes + figure plan) and optionally build pptx.",
+      "keywords": [
+        "slides",
+        "ppt",
+        "presentation",
+        "talk",
+        "conference",
+        "duration",
+        "audience",
+        "outline",
+        "figure plan",
+        "seminar",
+        "deck",
+        "speaker notes"
+      ],
+      "outputs": [
+        {
+          "review": "AGENTS/tasks/<task_id>/review/slide_brief.md"
+        }
+      ],
+      "requires_network": false,
+      "preferred_runner": [
+        "codex"
+      ],
+      "risk": "low",
+      "confirmations": [
+        "This will read USER paper/figures but will not modify them.",
+        "Export requires explicit consent."
       ],
       "has_run_sh": true,
       "has_prompt_md": true,

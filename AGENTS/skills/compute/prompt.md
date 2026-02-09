@@ -19,7 +19,8 @@ For a given task, generate a reproducible compute job package under:
 - Keep deterministic defaults.
 
 ## Governance
-- Never modify `USER/` or `GATE/`.
+- Never modify `USER/`.
+- `GATE/` writes are allowed only under `GATE/staged/` after explicit staging consent.
 - Write only under `AGENTS/tasks/<task_id>/...`.
 
 ## Runtime contract

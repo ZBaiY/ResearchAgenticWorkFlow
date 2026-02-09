@@ -271,5 +271,7 @@ else
   echo "git not available or repo missing" > "$GIT_STATUS_LOG"
 fi
 
+bash "$ROOT/AGENTS/runtime/stage_to_gate.sh" "$ROOT" "$TASK_ID" "$SKILL"
+
 echo "$SKILL completed for task $TASK_ID"
 exit 0

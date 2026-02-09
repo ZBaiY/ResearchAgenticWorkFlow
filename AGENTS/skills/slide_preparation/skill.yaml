@@ -1,0 +1,25 @@
+name: slide_preparation
+title: Slide Preparation
+description: Create talk slide deck skeleton (outline + notes + figure plan) and optionally build pptx.
+keywords:
+  - slides
+  - ppt
+  - presentation
+  - talk
+  - conference
+  - duration
+  - audience
+  - outline
+  - figure plan
+  - seminar
+  - deck
+  - speaker notes
+outputs:
+  - review: "AGENTS/tasks/<task_id>/review/slide_brief.md"
+requires_network: false
+preferred_runner:
+  - codex
+risk: low
+confirmations:
+  - This will read USER paper/figures but will not modify them.
+  - Export requires explicit consent.

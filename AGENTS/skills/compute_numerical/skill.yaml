@@ -1,0 +1,17 @@
+name: compute_numerical
+title: Numerical Compute (Python)
+description: Run numerical computations in Python with reproducibility logs and export-on-consent flow.
+keywords:
+  - compute
+  - numerical
+  - python
+  - sanity checks
+outputs:
+  - review: "AGENTS/tasks/<task_id>/review/compute_numerical_report.md"
+  - patch: "AGENTS/tasks/<task_id>/deliverable/patchset/patch.diff"
+requires_network: false
+preferred_runner:
+  - codex
+risk: medium
+confirmations:
+  - Executes Python code in task sandbox and may prompt for source export.

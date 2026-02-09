@@ -29,6 +29,7 @@ agentctl run prd_writer --task <task_id>
 
 ## Governance boundaries
 
-- Never modify `USER/` or `GATE/`.
+- Never modify `USER/`.
+- `GATE/` writes are allowed only under `GATE/staged/` after explicit staging consent.
 - Write only under `AGENTS/tasks/<task_id>/...`.
 - This skill is project-contained and does not depend on globally installed skills.
