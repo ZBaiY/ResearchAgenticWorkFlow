@@ -2,9 +2,9 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 AGENTHUB="$ROOT/bin/agenthub"
 INDEX_FILE="$ROOT/AGENTS/runtime/skills_index.json"
-INJECTED_PATH="$ROOT:$PATH"
 
 usage() {
   cat <<'USAGE'
@@ -77,13 +77,14 @@ echo "NEXT=./bin/ask \"your request\""
 echo "ALT=./bin/agenthub suggest \"your request\""
 echo "EXAMPLE=./bin/ask \"rewrite Floquet section for PRL clarity\""
 echo "REPO_ROOT=$ROOT"
-echo "PATH_INJECT_ON_LAUNCH=export PATH=\"$ROOT:\$PATH\""
 
 if [[ "$NO_LAUNCH" -eq 1 ]]; then
+  echo "PATH_INJECTED=\"$REPO_ROOT\""
   echo "LAUNCH=skipped"
   exit 0
 fi
 
+export PATH="$REPO_ROOT:$PATH"
+echo "PATH_INJECTED=\"$REPO_ROOT\""
 echo "LAUNCH=exec $CLIENT"
-export PATH="$INJECTED_PATH"
 exec "$CLIENT"

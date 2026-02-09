@@ -43,10 +43,8 @@ Run this once after entering the repo:
 `./bart "your request"`
 
 `./bart ...` always works inside this repo.
-Bare `bart ...` needs PATH. Choose one:
-`./bin/install_bart_path --apply` then `source ~/.zshrc`
-or
-`./bin/agent --client <codex|claude|gemini>` (injects repo PATH for that launched session only).
+`./bin/agent --client codex` opens the Codex UI and injects this repo root into PATH for that launched session, so bare `bart ...` works there.
+`./bart ...` always works from anywhere inside the repo; bare `bart ...` works after launching via `./bin/agent --client <codex|claude|gemini>`.
 
 ## What You Usually Touch
 

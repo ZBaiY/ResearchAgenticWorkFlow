@@ -1,11 +1,15 @@
-#!/usr/bin/env sh
-set -eu
+#!/usr/bin/env bash
+set -euo pipefail
 
-SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
-ROOT="$SCRIPT_DIR"
-TARGET="$ROOT/bin/a"
+SCRIPT_PATH="${BASH_SOURCE[0]}"
+if [[ "$SCRIPT_PATH" != */* ]]; then
+  SCRIPT_PATH="$(command -v -- "$SCRIPT_PATH")"
+fi
 
-if [ ! -x "$TARGET" ]; then
+REPO_ROOT="$(cd "$(dirname "$SCRIPT_PATH")" && pwd)"
+TARGET="$REPO_ROOT/bin/a"
+
+if [[ ! -x "$TARGET" ]]; then
   echo "ERROR: missing executable $TARGET" >&2
   exit 1
 fi
