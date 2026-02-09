@@ -1,0 +1,112 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+AGENTHUB="$ROOT/bin/agenthub"
+INDEX_FILE="$ROOT/AGENTS/runtime/skills_index.json"
+
+usage() {
+  cat <<'USAGE'
+Usage: ./bin/agent --client <codex|claude|gemini> [--no-launch] [--quiet] [--help]
+
+Bootstraps repo workflow (doctor + fresh skills index) and optionally launches a client.
+USAGE
+}
+
+CLIENT=""
+NO_LAUNCH=0
+QUIET=0
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --client)
+      CLIENT="${2:-}"
+      shift 2
+      ;;
+    --no-launch)
+      NO_LAUNCH=1
+      shift
+      ;;
+    --quiet)
+      QUIET=1
+      shift
+      ;;
+    --help|-h)
+      usage
+      exit 0
+      ;;
+    *)
+      echo "ERROR=Unknown option: $1" >&2
+      usage >&2
+      exit 2
+      ;;
+  esac
+done
+
+if [[ -z "$CLIENT" ]]; then
+  echo "ERROR=--client is required" >&2
+  usage >&2
+  exit 2
+fi
+
+case "$CLIENT" in
+  codex|claude|gemini) ;;
+  *)
+    echo "ERROR=Unknown client '$CLIENT'. Allowed: codex|claude|gemini" >&2
+    exit 2
+    ;;
+esac
+
+say() {
+  if [[ "$QUIET" -eq 0 ]]; then
+    printf '%s\n' "$*"
+  fi
+}
+
+if [[ ! -x "$AGENTHUB" ]]; then
+  echo "ERROR=Missing executable bin/agenthub" >&2
+  exit 1
+fi
+
+say "BOOTSTRAP=doctor"
+if ! "$AGENTHUB" doctor; then
+  echo "ERROR=agenthub doctor failed. Fix reported issues before proceeding." >&2
+  exit 1
+fi
+
+NEED_INDEX=0
+if [[ ! -f "$INDEX_FILE" ]]; then
+  NEED_INDEX=1
+else
+  if find "$ROOT/AGENTS/skills" -type f -name 'skill.yaml' -newer "$INDEX_FILE" | grep -q .; then
+    NEED_INDEX=1
+  fi
+fi
+
+if [[ "$NEED_INDEX" -eq 1 ]]; then
+  say "BOOTSTRAP=index_refresh"
+  "$AGENTHUB" index
+else
+  say "BOOTSTRAP=index_fresh"
+fi
+
+say "NEXT=./bin/ask \"your request\""
+say "ALT=./bin/agenthub suggest \"your request\""
+say "EXAMPLE=./bin/ask \"rewrite Floquet section for PRL clarity\""
+
+if [[ "$NO_LAUNCH" -eq 1 ]]; then
+  say "LAUNCH=skipped (--no-launch)"
+  exit 0
+fi
+
+BIN="$CLIENT"
+if ! command -v "$BIN" >/dev/null 2>&1; then
+  say "Client not found; open it manually. Repo bootstrap completed."
+  exit 0
+fi
+
+say "LAUNCH=attempt client:$CLIENT"
+# Best-effort non-blocking launch.
+("$BIN" >/dev/null 2>&1 &) || true
+say "LAUNCH=triggered"
+exit 0

@@ -19,21 +19,28 @@ See `USER/README.md` for the local user-owned summary and `AGENTS/runtime/user_w
 ## Workflow
 
 1. `cd` into the project directory.
-2. Open one or more terminal clients you prefer (Codex / Claude Code / Gemini).
-3. State your intent in plain language.
-4. The system suggests relevant skill(s).
-5. Select a skill and answer only the missing questions.
-6. The skill runs in a controlled workspace and produces review outputs.
-7. Review the summary and report/patch/results.
-8. If applicable, give explicit consent to export deliverables.
-9. Give explicit consent to stage candidate packages into `GATE/staged/<task_id>/`.
-10. Manually promote approved staged outputs into `USER/` (which remains authoritative).
+2. Run `./bin/agent --client <codex|claude|gemini>` to bootstrap (`doctor` + skill index freshness).
+3. Open one or more terminal clients you prefer (Codex / Claude Code / Gemini).
+4. State your intent in plain language.
+5. Use `./bin/ask "..."` (or `./bin/agenthub suggest "..."`) to get relevant skill suggestions.
+6. Select a skill and answer only the missing questions.
+7. The skill runs in a controlled workspace and produces review outputs.
+8. Review the summary and report/patch/results.
+9. If applicable, give explicit consent to export deliverables.
+10. Give explicit consent to stage candidate packages into `GATE/staged/<task_id>/`.
+11. Manually promote approved staged outputs into `USER/` (which remains authoritative).
 
 Agents can stage candidates only; they cannot modify `USER/`. Any change in `USER/` happens only through manual user promotion.
 
 ## Failure / Unavailable Backends
 
 If a backend or network dependency is unavailable, skills write diagnostics and placeholder summaries in task outputs/logs. Nothing is promoted automatically; you can retry later or stage diagnostics explicitly for review.
+
+## First Command of the Day
+
+Run this once after entering the repo:
+
+`./bin/agent --client codex`
 
 ## What You Usually Touch
 
