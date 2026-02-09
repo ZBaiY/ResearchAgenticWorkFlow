@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+usage() {
+  cat <<'USAGE'
+Usage:
+  ./bart "<free text request>"
+  ./bin/a "<free text request>"
+  ./bin/a --help
+
+Runs repo-local skill suggestion for a natural-language request.
+USAGE
+}
+
+if [[ $# -eq 0 ]]; then
+  usage
+  exit 2
+fi
+
+case "${1:-}" in
+  --help|-h)
+    usage
+    exit 0
+    ;;
+esac
+
+exec "$ROOT/bin/ask" "$*"

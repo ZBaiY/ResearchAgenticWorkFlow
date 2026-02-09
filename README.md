@@ -19,10 +19,10 @@ See `USER/README.md` for the local user-owned summary and `AGENTS/runtime/user_w
 ## Workflow
 
 1. `cd` into the project directory.
-2. Run `./bin/agent --client <codex|claude|gemini>` to bootstrap (`doctor` + skill index freshness).
-3. Open one or more terminal clients you prefer (Codex / Claude Code / Gemini).
+2. From a normal shell, run `./bart "your request"` to enter the repo-local agent flow.
+3. If needed, run `./bin/agent --client <codex|claude|gemini>` to bootstrap and open a client UI.
 4. State your intent in plain language.
-5. Use `./bin/ask "..."` (or `./bin/agenthub suggest "..."`) to get relevant skill suggestions.
+5. Use `./bart "..."` (or `./bin/agenthub suggest "..."`) to get relevant skill suggestions.
 6. Select a skill and answer only the missing questions.
 7. The skill runs in a controlled workspace and produces review outputs.
 8. Review the summary and report/patch/results.
@@ -40,7 +40,17 @@ If a backend or network dependency is unavailable, skills write diagnostics and 
 
 Run this once after entering the repo:
 
-`./bin/agent --client codex`
+`./bart "your request"`
+
+Optional: alias `bart='./bart'`
+
+Permanent alias (zsh):
+```sh
+pwd
+# add this line to ~/.zshrc using your repo path from pwd
+alias bart='/ABSOLUTE/PATH/TO/REPO/bart'
+source ~/.zshrc
+```
 
 ## What You Usually Touch
 
