@@ -4,6 +4,7 @@ set -euo pipefail
 ROOT="${1:-}"
 TASK_ID="${2:-}"
 SKILL="paper_profile_update"
+APPROVAL_SH="$ROOT/AGENTS/runtime/approval.sh"
 
 if [[ -z "$ROOT" || -z "$TASK_ID" ]]; then
   echo "Usage: run.sh <repo_root> <task_id>" >&2
@@ -31,6 +32,8 @@ if [[ ! -d "$TDIR" ]]; then
   exit 2
 fi
 
+source "$APPROVAL_SH"
+
 mkdir -p "$OUT_DIR" "$REVIEW_DIR" "$LOG_DIR"
 : > "$CMD_LOG"
 : > "$STDOUT_LOG"
@@ -50,6 +53,16 @@ sha256_file() {
 WRITE_TO_USER="false"
 if [[ -f "$REQ" ]] && rg -qi '^\s*write_to_user\s*:\s*true\s*$' "$REQ"; then
   WRITE_TO_USER="true"
+fi
+
+DRAFT_MODE="false"
+REQUEST_STATUS="missing"
+if [[ -f "$REQ" ]]; then
+  REQUEST_STATUS="complete"
+  if rg -qi '\bTBD\b|<[^>]+>|\?\?\?|to be determined' "$REQ"; then
+    DRAFT_MODE="true"
+    REQUEST_STATUS="draft_placeholders_detected"
+  fi
 fi
 
 # Collect source files (read-only inputs).
@@ -130,10 +143,13 @@ cat > "$REPORT_MD" <<EOF2
 - task_id: $TASK_ID
 - skill: $SKILL
 - source_files_count: $SRC_COUNT
+- request_status: $REQUEST_STATUS
+- draft_mode: $DRAFT_MODE
 - output_profile: AGENTS/tasks/$TASK_ID/outputs/paper_profile/paper_profile.json
 
 ## Summary
 - Built a paper profile payload from available USER manuscript/notes sources.
+- If request placeholders are present (for example, TBD), run proceeds in draft mode using canonical sources.
 - This profile is a candidate and should be reviewed before promotion.
 
 ## Fields
@@ -141,6 +157,9 @@ cat > "$REPORT_MD" <<EOF2
 - categories
 - short_blurb
 - related_work_themes
+
+## Inputs used
+$SRC_JSON
 
 ## Promotion target
 - Canonical user file (manual by default): USER/paper/meta/paper_profile.json
@@ -156,22 +175,10 @@ cat > "$RESOLVED_JSON" <<EOF2
 EOF2
 
 maybe_stage() {
-  local prompt="Stage profile update package to GATE/staged/$TASK_ID? (y/N) "
-  local resp=""
-  if [[ -r /dev/tty ]]; then
-    if { printf "%s" "$prompt" > /dev/tty && IFS= read -r resp < /dev/tty; } 2>/dev/null; then
-      :
-    else
-      echo "$prompt"
-      read -r resp || true
-    fi
-  else
-    echo "$prompt"
-    read -r resp || true
+  local resp_lc="n"
+  if approval_confirm "Stage profile update package to GATE/staged/$TASK_ID? (y/N) "; then
+    resp_lc="y"
   fi
-
-  local resp_lc
-  resp_lc="$(printf '%s' "$resp" | tr '[:upper:]' '[:lower:]')"
   if [[ "$resp_lc" != "y" ]]; then
     cat > "$STAGE_CONSENT_JSON" <<EOF2
 {
@@ -223,19 +230,8 @@ EOF2
 }
 
 if [[ "$WRITE_TO_USER" == "true" ]]; then
-  warn="WARNING: This will write into USER/ (canonical workspace). This bypasses the normal GATE staging.\nProceed? (type 'WRITE USER' to confirm, anything else cancels) "
-  confirm=""
-  if [[ -r /dev/tty ]]; then
-    if { printf "%b" "$warn" > /dev/tty && IFS= read -r confirm < /dev/tty; } 2>/dev/null; then
-      :
-    else
-      printf "%b" "$warn"
-      read -r confirm || true
-    fi
-  else
-    printf "%b" "$warn"
-    read -r confirm || true
-  fi
+  warn="WARNING: This will write into USER/ (canonical workspace). This bypasses the normal GATE staging.\nProceed? Type WRITE USER to confirm (anything else cancels): "
+  confirm="$(approval_text "$warn" "AUTO-NO")"
 
   if [[ "$confirm" == "WRITE USER" ]]; then
     USER_META_DIR="$ROOT/USER/paper/meta"

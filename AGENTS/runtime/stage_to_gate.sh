@@ -4,6 +4,7 @@ set -euo pipefail
 ROOT="${1:-}"
 TASK_ID="${2:-}"
 SKILL="${3:-}"
+APPROVAL_SH="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/approval.sh"
 
 if [[ -z "$ROOT" || -z "$TASK_ID" || -z "$SKILL" ]]; then
   echo "Usage: stage_to_gate.sh <repo_root> <task_id> <skill_name>" >&2
@@ -17,6 +18,8 @@ SKILL_STAGE_DIR="$TASK_STAGE_DIR/$SKILL"
 STAGE_MD="$TASK_STAGE_DIR/STAGE.md"
 LOG_SKILL_DIR="$TDIR/logs/$SKILL"
 CONSENT_JSON="$LOG_SKILL_DIR/stage_consent.json"
+
+source "$APPROVAL_SH"
 
 mkdir -p "$LOG_SKILL_DIR"
 
@@ -82,20 +85,10 @@ EOF2
   exit 0
 fi
 
-PROMPT="Stage candidate deliverables to GATE/staged/$TASK_ID? (y/N) "
-RESP=""
-if [[ -r /dev/tty ]]; then
-  if { printf "%s" "$PROMPT" > /dev/tty && IFS= read -r RESP < /dev/tty; } 2>/dev/null; then
-    :
-  else
-    echo "$PROMPT"
-    read -r RESP || true
-  fi
-else
-  echo "$PROMPT"
-  read -r RESP || true
+RESP_LC="n"
+if approval_confirm "Stage candidate deliverables to GATE/staged/$TASK_ID? (y/N) "; then
+  RESP_LC="y"
 fi
-RESP_LC="$(printf '%s' "$RESP" | tr '[:upper:]' '[:lower:]')"
 
 if [[ "$RESP_LC" != "y" ]]; then
   cat > "$CONSENT_JSON" <<EOF2

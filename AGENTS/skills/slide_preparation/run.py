@@ -9,6 +9,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
+RUNTIME_DIR = Path(__file__).resolve().parents[2] / "runtime"
+if str(RUNTIME_DIR) not in sys.path:
+    sys.path.insert(0, str(RUNTIME_DIR))
+
+from approval import ask_text, confirm
+
 
 def now_utc() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
@@ -124,21 +130,6 @@ def load_request(req_path: Path) -> Dict[str, Any]:
         req["export"]["pptx_engine"] = str(pptx_engine).strip()
 
     return req
-
-
-def tty_prompt(question: str) -> str:
-    try:
-        with open("/dev/tty", "r+", encoding="utf-8") as tty:
-            tty.write(question)
-            tty.flush()
-            return tty.readline().strip()
-    except Exception:
-        try:
-            sys.stdout.write(question)
-            sys.stdout.flush()
-            return input().strip()
-        except EOFError:
-            return ""
 
 
 def ensure_int(v: Any, default: int) -> int:
@@ -311,7 +302,7 @@ def main() -> int:
 
     questions_asked: List[str] = []
     if not req["talk"].get("duration_min"):
-        ans = tty_prompt("Missing talk.duration_min. Enter duration in minutes: ")
+        ans = ask_text("Missing talk.duration_min. Enter duration in minutes: ", "20")
         if ans:
             req["talk"]["duration_min"] = ensure_int(ans, 20)
         else:
@@ -319,17 +310,17 @@ def main() -> int:
         questions_asked.append("duration_min")
 
     if not req["talk"].get("audience"):
-        ans = tty_prompt("Missing talk.audience. Enter expert/mixed/adjacent/general: ")
+        ans = ask_text("Missing talk.audience. Enter expert/mixed/adjacent/general: ", "mixed")
         req["talk"]["audience"] = ans or "mixed"
         questions_asked.append("audience")
 
     if not req["talk"].get("venue"):
-        ans = tty_prompt("Missing talk.venue. Enter conference/seminar/group meeting: ")
+        ans = ask_text("Missing talk.venue. Enter conference/seminar/group meeting: ", "seminar")
         req["talk"]["venue"] = ans or "seminar"
         questions_asked.append("venue")
 
     if not req["talk"].get("emphasis") and not req["talk"].get("goal"):
-        ans = tty_prompt("Missing emphasis/goal. Enter one short phrase for emphasis or goal: ")
+        ans = ask_text("Missing emphasis/goal. Enter one short phrase for emphasis or goal: ", "")
         if ans:
             req["talk"]["emphasis"] = ans
         else:
@@ -480,7 +471,7 @@ def main() -> int:
     export_resp = ""
     exported = False
     if ask_export:
-        export_resp = tty_prompt("Skeleton ready. Export editable slide sources into deliverable/slides/? (y/N) ")
+        export_resp = "y" if confirm("Skeleton ready. Export editable slide sources into deliverable/slides/? (y/N) ", default=False) else "n"
     else:
         export_resp = "y"
 

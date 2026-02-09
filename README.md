@@ -35,6 +35,7 @@ Agents can stage candidates only; they cannot modify `USER/`. Any change in `USE
 ## Failure / Unavailable Backends
 
 If a backend or network dependency is unavailable, skills write diagnostics and placeholder summaries in task outputs/logs. Nothing is promoted automatically; you can retry later or stage diagnostics explicitly for review.
+On failure, agenthub stops immediately and writes `AGENTS/tasks/<task_id>/review/error.md`.
 
 ## First Command of the Day
 

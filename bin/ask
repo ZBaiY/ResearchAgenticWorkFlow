@@ -10,25 +10,57 @@ fi
 
 QUERY="$*"
 
-SUGGEST_OUT="$($ROOT/bin/agenthub suggest "$QUERY")"
-printf '%s\n' "$SUGGEST_OUT"
+set +e
+SUGGEST_OUT="$($ROOT/bin/agenthub suggest "$QUERY" 2>&1)"
+SUGGEST_RC=$?
+set -e
+if [[ "$SUGGEST_RC" -ne 0 ]]; then
+  SHORT="$(printf '%s\n' "$SUGGEST_OUT" | tail -n 1)"
+  [[ -n "$SHORT" ]] || SHORT="agenthub suggest failed"
+  echo "ERROR=$SHORT" >&2
+  echo "LIKELY_CAUSE=agenthub suggest failed (index/runtime issue)." >&2
+  echo "NEXT_STEP=Run ./bin/agenthub doctor" >&2
+  exit "$SUGGEST_RC"
+fi
 
 RECOMMENDED="$(printf '%s\n' "$SUGGEST_OUT" | sed -n 's/^RECOMMENDED=//p' | head -n 1)"
 if [[ -z "$RECOMMENDED" || "$RECOMMENDED" == "NONE" ]]; then
-  RECOMMENDED="<choose_from_cards>"
+  RECOMMENDED="$(printf '%s\n' "$SUGGEST_OUT" | sed -n 's/^CARD=SKILL=\([^ ]*\).*/\1/p' | head -n 1)"
+fi
+if [[ -z "$RECOMMENDED" || "$RECOMMENDED" == "NONE" ]]; then
+  RECOMMENDED="<choose_skill>"
 fi
 
-TASK_NAME="$(printf '%s' "$QUERY" | tr '[:upper:]' '[:lower:]' | tr -cs 'a-z0-9' '_' | sed 's/^_*//; s/_*$//' | cut -c1-40)"
-[[ -n "$TASK_NAME" ]] || TASK_NAME="task"
+TASK_NAME="$("$ROOT/bin/agenthub" task-name --skill "$RECOMMENDED" | sed -n 's/^TASK_NAME=//p' | head -n 1)"
+if [[ -z "$TASK_NAME" ]]; then
+  TASK_NAME="<skill>_<timestamp>"
+fi
 
-echo ""
-echo "NEXT_COMMAND=cat <<'EOF' | ./bin/agenthub start --skill $RECOMMENDED --task-name $TASK_NAME --request -"
-echo "request:"
-echo "  goal: TBD"
-echo "  constraints:"
-echo "    - TBD"
-echo "  inputs:"
-echo "    - TBD"
-echo "EOF"
-echo ""
-echo "THEN_RUN=./bin/agenthub run --task <TASK_ID>"
+REQ_DIR="$ROOT/AGENTS/requests"
+mkdir -p "$REQ_DIR"
+REQ_PATH="$REQ_DIR/${TASK_NAME}.md"
+if [[ ! -f "$REQ_PATH" ]]; then
+  cat > "$REQ_PATH" <<EOF
+# Request
+
+Goal:
+$QUERY
+
+Background:
+- Auto-generated from bart input. Refine as needed.
+
+Constraints:
+- Do not modify USER/ unless explicitly requested.
+
+Deliverables:
+- A report under AGENTS/tasks/<task_id>/review/.
+EOF
+fi
+
+REQ_REL="${REQ_PATH#$ROOT/}"
+
+echo "RECOMMENDED_SKILL=$RECOMMENDED"
+echo "TASK_NAME=$TASK_NAME"
+echo "NEXT_1=./bin/agenthub start --skill $RECOMMENDED --task-name $TASK_NAME --request $REQ_REL"
+echo "NEXT_2=./bin/agenthub run --task <TASK_ID> [--yes]"
+echo "HINT=Request template at $REQ_REL"

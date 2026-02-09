@@ -4,6 +4,7 @@ set -euo pipefail
 ROOT="${1:-}"
 TASK_ID="${2:-}"
 SKILL="compute"
+APPROVAL_SH="$ROOT/AGENTS/runtime/approval.sh"
 
 if [[ -z "$ROOT" || -z "$TASK_ID" ]]; then
   echo "Usage: run.sh <repo_root> <task_id>" >&2
@@ -24,6 +25,8 @@ if [[ ! -d "$TDIR" ]]; then
   exit 2
 fi
 
+source "$APPROVAL_SH"
+
 mkdir -p "$LOG_DIR" "$LOG_COMPUTE" "$TDIR/review"
 : > "$CMD_LOG"
 : > "$STDOUT_LOG"
@@ -39,15 +42,7 @@ if [[ -z "$backend" && -f "$TDIR/work/compute_backend.txt" ]]; then
 fi
 
 if [[ -z "$backend" ]]; then
-  prompt="Generic compute skill is deprecated. Choose backend: [1] numerical-python [2] symbolic-mathematica: "
-  ans=""
-  if [[ -r /dev/tty ]]; then
-    printf "%s" "$prompt" > /dev/tty
-    IFS= read -r ans < /dev/tty || true
-  else
-    echo "$prompt"
-    read -r ans || true
-  fi
+  ans="$(approval_text "Generic compute skill is deprecated. Choose backend: [1] numerical-python [2] symbolic-mathematica: " "1")"
   case "$(printf '%s' "$ans" | tr '[:upper:]' '[:lower:]')" in
     2|symbolic|mathematica|wolfram|compute_symbolic) backend="symbolic" ;;
     *) backend="numerical" ;;

@@ -5,13 +5,20 @@ import os
 import re
 import subprocess
 import sys
+import time
+import traceback
 from datetime import datetime, timezone
+from json import JSONDecodeError
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
 
 def now_utc() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def utc_compact() -> str:
+    return datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
 
 
 def repo_root() -> Path:
@@ -40,6 +47,19 @@ def index_path(root: Path) -> Path:
 
 def run_cmd(cmd: List[str], cwd: Path) -> subprocess.CompletedProcess:
     return subprocess.run(cmd, cwd=str(cwd), text=True, capture_output=True)
+
+
+class NonInteractivePromptError(RuntimeError):
+    pass
+
+
+class SkillSubprocessError(RuntimeError):
+    def __init__(self, skill: str, returncode: int, stdout: str, stderr: str):
+        super().__init__(f"Skill '{skill}' failed with exit code {returncode}")
+        self.skill = skill
+        self.returncode = returncode
+        self.stdout = stdout
+        self.stderr = stderr
 
 
 def strip_quotes(s: str) -> str:
@@ -263,6 +283,28 @@ def write_request(task_dir: Path, args: argparse.Namespace) -> str:
         content = sys.stdin.read()
         req_path.write_text(content, encoding="utf-8")
         return "stdin"
+    if args.request and args.request != "?":
+        src = Path(args.request).expanduser()
+        if not src.is_absolute():
+            src = (repo_root() / src).resolve()
+        if src.exists():
+            content = src.read_text(encoding="utf-8")
+        else:
+            src.parent.mkdir(parents=True, exist_ok=True)
+            content = (
+                "# Request\n\n"
+                "Goal:\n"
+                "TBD\n\n"
+                "Background:\n"
+                "TBD\n\n"
+                "Constraints:\n"
+                "- TBD\n\n"
+                "Deliverables:\n"
+                "- TBD\n"
+            )
+            src.write_text(content, encoding="utf-8")
+        req_path.write_text(content, encoding="utf-8")
+        return f"request:{src}"
     if args.request_file:
         src = Path(args.request_file).expanduser().resolve()
         content = src.read_text(encoding="utf-8")
@@ -287,13 +329,49 @@ def write_request(task_dir: Path, args: argparse.Namespace) -> str:
     return f"template+editor:{editor}"
 
 
-def cmd_start(root: Path, args: argparse.Namespace) -> int:
-    cp = run_cmd([str(root / "bin" / "agentctl"), "new", args.task_name], root)
-    if cp.returncode != 0:
-        sys.stderr.write(cp.stderr)
-        return cp.returncode
-    task_id = cp.stdout.strip().splitlines()[-1].strip()
+def validate_task_name(name: str) -> bool:
+    return bool(re.fullmatch(r"[a-z0-9_]+", name))
+
+
+def default_task_name(skill: str) -> str:
+    return f"{skill}_{utc_compact()}"
+
+
+def reserve_task_id(root: Path, skill: str) -> str:
+    # Ensure uniqueness while preserving the <skill>_<timestamp> format.
+    while True:
+        candidate = default_task_name(skill)
+        if not (tasks_dir(root) / candidate).exists():
+            return candidate
+        time.sleep(1)
+
+
+def init_task_dir(root: Path, task_id: str) -> Path:
     tdir = tasks_dir(root) / task_id
+    tdir.mkdir(parents=True, exist_ok=False)
+    (tdir / "work").mkdir(parents=True, exist_ok=True)
+    (tdir / "outputs" / "fig").mkdir(parents=True, exist_ok=True)
+    (tdir / "outputs" / "tables").mkdir(parents=True, exist_ok=True)
+    (tdir / "logs").mkdir(parents=True, exist_ok=True)
+    (tdir / "review").mkdir(parents=True, exist_ok=True)
+    (tdir / "deliverable").mkdir(parents=True, exist_ok=True)
+    (tdir / "plan.md").write_text("# plan.md\n# Agent plan (to be filled by agent)\n", encoding="utf-8")
+    return tdir
+
+
+def cmd_start(root: Path, args: argparse.Namespace) -> int:
+    if args.task_name:
+        if not validate_task_name(args.task_name):
+            print("ERROR=Invalid --task-name. Use only lowercase letters, digits, and underscores.", file=sys.stderr)
+            return 2
+        task_id = args.task_name
+        if (tasks_dir(root) / task_id).exists():
+            print(f"ERROR=Task already exists: {task_id}", file=sys.stderr)
+            return 2
+    else:
+        task_id = reserve_task_id(root, args.skill)
+
+    tdir = init_task_dir(root, task_id)
 
     source = write_request(tdir, args)
 
@@ -376,48 +454,177 @@ def resolve_output_paths(root: Path, task_id: str, skill_meta: Dict[str, Any], s
     return patch, report, result, staged
 
 
+def stderr_tail(text: str, max_lines: int = 8) -> str:
+    lines = [x for x in text.splitlines() if x.strip()]
+    if not lines:
+        return ""
+    return "\n".join(lines[-max_lines:])
+
+
+def classify_error(err: Exception, phase: str, stderr_hint: str = "") -> Tuple[str, str]:
+    if isinstance(err, NonInteractivePromptError):
+        return "Non-interactive shell requires explicit approval mode.", "Run with --yes or --no."
+    if isinstance(err, FileNotFoundError):
+        return "Missing file or path.", "Input path is wrong or working directory is incorrect."
+    if isinstance(err, JSONDecodeError):
+        return "Malformed JSON content.", "A config/request file has invalid JSON syntax."
+    if isinstance(err, PermissionError):
+        return "Permission denied.", "File permissions or sandbox restrictions blocked access."
+    if isinstance(err, SkillSubprocessError):
+        tail = stderr_tail(stderr_hint or err.stderr)
+        if "not found" in tail.lower() or "command not found" in tail.lower():
+            return "Subprocess failed: required tool is missing.", "Install the missing binary and retry."
+        return "Subprocess exited non-zero.", "Skill command failed; inspect stderr and skill logs."
+    msg = str(err).lower()
+    if "http" in msg or "url" in msg or "network" in msg or "rate limit" in msg or "unauthorized" in msg:
+        return "Network/API request failed.", "Network issue, rate limit, or authentication problem."
+    if "yaml" in msg and "parse" in msg:
+        return "YAML parse failed.", "Malformed YAML in configuration/request."
+    return "Unknown runtime failure.", "Unknown root cause."
+
+
+def traceback_where(err: Exception) -> str:
+    tb = traceback.extract_tb(err.__traceback__) if err.__traceback__ else []
+    if not tb:
+        return "unknown"
+    top = tb[-3:]
+    return " | ".join([f"{Path(f.filename).name}:{f.lineno} in {f.name}" for f in top])
+
+
+def write_error_report(root: Path, task_id: str, phase: str, err: Exception, stderr_hint: str = "") -> str:
+    review_dir = tasks_dir(root) / task_id / "review"
+    review_dir.mkdir(parents=True, exist_ok=True)
+    out = review_dir / "error.md"
+
+    likely, guess_default = classify_error(err, phase, stderr_hint=stderr_hint)
+    likely_cause = likely
+    if isinstance(err, SkillSubprocessError):
+        likely_cause = f"{likely_cause}\nstderr_tail:\n{stderr_tail(stderr_hint or err.stderr) or '(none)'}"
+    if guess_default == "Unknown root cause.":
+        unknown_guess = "HYPOTHESIS: check request.md and skill-specific logs for the first failing command."
+    else:
+        unknown_guess = "N/A"
+
+    trace = "".join(traceback.format_exception(type(err), err, err.__traceback__))
+    next_step = f"Inspect AGENTS/tasks/{task_id}/logs and AGENTS/tasks/{task_id}/request.md."
+    if isinstance(err, NonInteractivePromptError):
+        next_step = f"Re-run: ./bin/agenthub run --task {task_id} --yes"
+
+    content = (
+        "# Error Report\n\n"
+        f"ERROR_CLASS: {err.__class__.__name__}\n\n"
+        f"ERROR_MESSAGE: {str(err)}\n\n"
+        f"WHERE: {traceback_where(err)}\n\n"
+        f"PHASE: {phase}\n\n"
+        f"LIKELY_CAUSE: {likely_cause}\n\n"
+        f"IF_UNKNOWN_GUESS: {unknown_guess}\n\n"
+        f"NEXT_STEP: {next_step}\n\n"
+        "FULL_TRACEBACK:\n"
+        "```text\n"
+        f"{trace}"
+        "```\n"
+    )
+    out.write_text(content, encoding="utf-8")
+    return str(out.relative_to(root))
+
+
+def print_error_summary(err: Exception, report_path: str) -> None:
+    short = str(err).strip().splitlines()[0] if str(err).strip() else err.__class__.__name__
+    if len(short) > 140:
+        short = short[:137] + "..."
+    print(f"ERROR={short}", file=sys.stderr)
+    print(f"SEE={report_path}", file=sys.stderr)
+    print("EXIT=nonzero", file=sys.stderr)
+
+
 def cmd_run(root: Path, args: argparse.Namespace) -> int:
-    idx = ensure_index(root)
     task_id = args.task
-    skill = args.skill or infer_skill(root, task_id)
-    if not skill:
-        print("ERROR=Missing skill. Provide --skill or set skill in AGENTS/tasks/<task_id>/meta.json", file=sys.stderr)
-        return 2
+    phase = "run"
+    try:
+        idx = ensure_index(root)
+        skill = args.skill or infer_skill(root, task_id)
+        if not skill:
+            raise RuntimeError("Missing skill. Provide --skill or set skill in AGENTS/tasks/<task_id>/meta.json")
 
-    smeta = load_skill_from_index(idx, skill)
-    confirmations = smeta.get("confirmations", []) if smeta else []
-    for c in confirmations:
-        print(f"CONFIRM_NOTE={c}")
+        smeta = load_skill_from_index(idx, skill)
+        confirmations = smeta.get("confirmations", []) if smeta else []
+        for c in confirmations:
+            print(f"CONFIRM_NOTE={c}")
 
-    if not args.yes:
-        ans = input("Proceed with run? [y/N]: ").strip().lower()
-        if ans not in {"y", "yes"}:
+        if args.yes and args.no:
+            raise RuntimeError("Use only one of --yes or --no.")
+
+        approval_mode = "prompt"
+        if args.yes:
+            approval_mode = "yes"
+        elif args.no:
+            approval_mode = "no"
+
+        if approval_mode == "no":
             print("ABORTED=true")
             return 1
 
-    cp = subprocess.run([str(root / "bin" / "agentctl"), "run", skill, "--task", task_id], cwd=str(root))
-    if cp.returncode != 0:
-        return cp.returncode
+        phase = "prompt"
+        if approval_mode == "prompt":
+            if not sys.stdin.isatty():
+                raise NonInteractivePromptError("Non-interactive shell. Re-run with --yes or --no.")
+            ok, interactive_error = prompt_yes_no("Proceed with run? [y/N]: ")
+            if interactive_error:
+                raise NonInteractivePromptError("Non-interactive shell. Re-run with --yes or --no.")
+            if not ok:
+                print("ABORTED=true")
+                return 1
 
-    patch, report, result, staged = resolve_output_paths(root, task_id, smeta, skill)
-    review_dir = f"AGENTS/tasks/{task_id}/review"
-    promotion_hint = ""
-    stage_md = f"GATE/staged/{task_id}/STAGE.md"
-    if (root / stage_md).exists():
-        promotion_hint = stage_md
-    else:
-        promo = f"AGENTS/tasks/{task_id}/deliverable/promotion_instructions.md"
-        if (root / promo).exists():
-            promotion_hint = promo
+        phase = "skill_run"
+        env = os.environ.copy()
+        env["AGENTHUB_APPROVAL"] = approval_mode
+        env["AGENTHUB_INTERACTIVE"] = "1" if sys.stdin.isatty() else "0"
+        cp = subprocess.run(
+            [str(root / "bin" / "agentctl"), "run", skill, "--task", task_id],
+            cwd=str(root),
+            env=env,
+            text=True,
+            capture_output=True,
+        )
+        if cp.returncode != 0:
+            raise SkillSubprocessError(skill=skill, returncode=cp.returncode, stdout=cp.stdout, stderr=cp.stderr)
+        if cp.stdout.strip():
+            print(cp.stdout.strip())
+        if cp.stderr.strip():
+            print(cp.stderr.strip(), file=sys.stderr)
 
-    print(f"TASK_ID={task_id}")
-    print(f"REVIEW_DIR={review_dir if (root / review_dir).exists() else ''}")
-    print(f"STAGED_DIR={staged}")
-    print(f"PROMOTION_HINT={promotion_hint}")
-    print(f"PATCH={patch}")
-    print(f"REPORT={report}")
-    print(f"RESULT={result}")
-    return 0
+        phase = "summary"
+        patch, report, result, staged = resolve_output_paths(root, task_id, smeta, skill)
+        review_dir = f"AGENTS/tasks/{task_id}/review"
+        promotion_hint = ""
+        stage_md = f"GATE/staged/{task_id}/STAGE.md"
+        if (root / stage_md).exists():
+            promotion_hint = stage_md
+        else:
+            promo = f"AGENTS/tasks/{task_id}/deliverable/promotion_instructions.md"
+            if (root / promo).exists():
+                promotion_hint = promo
+
+        print(f"Task: {task_id}")
+        print(f"- Review Dir: {review_dir if (root / review_dir).exists() else 'NONE'}")
+        print(f"- Report: {report}")
+        print(f"- Patch: {patch}")
+        print(f"- Result: {result}")
+        print(f"- Staged Dir: {staged or 'NONE'}")
+        print(f"- Promotion Hint: {promotion_hint or 'NONE'}")
+        return 0
+    except Exception as err:
+        report = write_error_report(root, task_id, phase=phase, err=err, stderr_hint=getattr(err, "stderr", ""))
+        print_error_summary(err, report)
+        return 2
+
+
+def prompt_yes_no(prompt: str) -> Tuple[bool, bool]:
+    try:
+        ans = input(prompt).strip().lower()
+    except EOFError:
+        return False, True
+    return ans in {"y", "yes"}, False
 
 
 def cmd_doctor(root: Path) -> int:
@@ -465,7 +672,7 @@ def main() -> int:
 
     pstart = sub.add_parser("start")
     pstart.add_argument("--skill", required=True)
-    pstart.add_argument("--task-name", required=True)
+    pstart.add_argument("--task-name", default=None)
     pstart.add_argument("--request", default=None)
     pstart.add_argument("--request-file", default=None)
     pstart.add_argument("--edit", action="store_true")
@@ -474,6 +681,10 @@ def main() -> int:
     prun.add_argument("--task", required=True)
     prun.add_argument("--skill", default=None)
     prun.add_argument("--yes", action="store_true")
+    prun.add_argument("--no", action="store_true")
+
+    pname = sub.add_parser("task-name")
+    pname.add_argument("--skill", required=True)
 
     sub.add_parser("doctor")
 
@@ -487,6 +698,9 @@ def main() -> int:
         return cmd_start(root, args)
     if args.cmd == "run":
         return cmd_run(root, args)
+    if args.cmd == "task-name":
+        print(f"TASK_NAME={default_task_name(args.skill)}")
+        return 0
     if args.cmd == "doctor":
         return cmd_doctor(root)
 

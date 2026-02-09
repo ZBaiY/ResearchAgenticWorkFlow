@@ -12,6 +12,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
+RUNTIME_DIR = Path(__file__).resolve().parents[2] / "runtime"
+if str(RUNTIME_DIR) not in sys.path:
+    sys.path.insert(0, str(RUNTIME_DIR))
+
+from approval import ask_text
+
 
 def now_utc() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
@@ -156,46 +162,15 @@ def parse_bib_seeds(text: str) -> List[str]:
 
 
 def ask_method() -> str:
-    prompt = (
-        "Which retrieval method to run?\n"
-        " 1) keyword_search (systematic title/abstract search)\n"
-        " 2) seed_graph (citation graph from seeds)\n"
-        " 3) external_search (user-provided external results)\n"
-        "Enter 1/2/3\n"
+    val = ask_text(
+        "Which retrieval method to run? 1) keyword_search 2) seed_graph 3) external_search\nEnter 1/2/3: ",
+        "1",
     )
-    val = ""
-    try:
-        with open("/dev/tty", "r+", encoding="utf-8") as tty:
-            tty.write(prompt)
-            tty.flush()
-            val = tty.readline().strip()
-    except Exception:
-        # Fallback for non-interactive sessions.
-        try:
-            sys.stdout.write(prompt)
-            sys.stdout.flush()
-            val = input().strip()
-        except EOFError:
-            return "keyword_search"
     return {"1": "keyword_search", "2": "seed_graph", "3": "external_search"}.get(val, "keyword_search")
 
 
 def ask_dossier_path() -> str:
-    prompt = "dossier_path missing. Enter dossier path (e.g., USER/literature/dossiers/<project_slug>):\n"
-    val = ""
-    try:
-        with open("/dev/tty", "r+", encoding="utf-8") as tty:
-            tty.write(prompt)
-            tty.flush()
-            val = tty.readline().strip()
-    except Exception:
-        try:
-            sys.stdout.write(prompt)
-            sys.stdout.flush()
-            val = input().strip()
-        except EOFError:
-            return ""
-    return val
+    return ask_text("dossier_path missing. Enter dossier path (e.g., USER/literature/dossiers/<project_slug>): ", "")
 
 
 @dataclass
@@ -401,13 +376,34 @@ def main() -> int:
     methods = [m.strip() for m in methods if m and m.strip()]
 
     method_selected_interactively = False
+    method_selection_mode = "provided"
     if not methods:
         selected = ask_method()
         methods = [selected]
-        method_selected_interactively = True
-        safe_json(ctx.method_log, {"selected_interactively": True, "method": selected, "timestamp_utc": now_utc()})
+        mode_env = os.environ.get("AGENTHUB_APPROVAL", "prompt").strip().lower()
+        interactive_env = os.environ.get("AGENTHUB_INTERACTIVE", "")
+        method_selected_interactively = bool(mode_env == "prompt" and interactive_env == "1")
+        method_selection_mode = "interactive" if method_selected_interactively else "draft_default"
+        safe_json(
+            ctx.method_log,
+            {
+                "selected_interactively": method_selected_interactively,
+                "selection_mode": method_selection_mode,
+                "method": selected,
+                "timestamp_utc": now_utc(),
+            },
+        )
     else:
-        safe_json(ctx.method_log, {"selected_interactively": False, "method": methods[0], "methods": methods, "timestamp_utc": now_utc()})
+        safe_json(
+            ctx.method_log,
+            {
+                "selected_interactively": False,
+                "selection_mode": method_selection_mode,
+                "method": methods[0],
+                "methods": methods,
+                "timestamp_utc": now_utc(),
+            },
+        )
 
     safe_json(
         skill_logs_dir / "resolved_request.json",
@@ -416,6 +412,7 @@ def main() -> int:
             "dossier_path": dossier,
             "methods": methods,
             "method_selected_interactively": method_selected_interactively,
+            "method_selection_mode": method_selection_mode,
             "timestamp_utc": now_utc(),
         },
     )

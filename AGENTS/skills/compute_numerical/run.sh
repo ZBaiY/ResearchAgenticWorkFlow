@@ -5,6 +5,7 @@ ROOT="${1:-}"
 TASK_ID="${2:-}"
 SKILL="compute_numerical"
 BACKEND="python"
+APPROVAL_SH="$ROOT/AGENTS/runtime/approval.sh"
 
 if [[ -z "$ROOT" || -z "$TASK_ID" ]]; then
   echo "Usage: run.sh <repo_root> <task_id>" >&2
@@ -35,6 +36,8 @@ if [[ ! -d "$TDIR" ]]; then
   echo "Task folder does not exist: $TDIR" >&2
   exit 2
 fi
+
+source "$APPROVAL_SH"
 
 mkdir -p "$SCRATCH" "$RUN_DIR" "$OUTPUTS" "$LOGS" "$REVIEW_DIR" "$TDIR/deliverable"
 : > "$CMD_LOG"
@@ -206,14 +209,8 @@ fi
 RESP=""
 EXPORTED=false
 if rg -q '"status": "ok"' "$RESULT_JSON"; then
-  echo "Compute succeeded. Export a cleaned, commented program into deliverable/src? (y/N)"
-  if read -r RESP; then
-    :
-  else
-    RESP=""
-  fi
-  RESP_LC="$(printf '%s' "$RESP" | tr '[:upper:]' '[:lower:]')"
-  if [[ "$RESP_LC" == "y" ]]; then
+  if approval_confirm "Compute succeeded. Export a cleaned, commented program into deliverable/src? (y/N) "; then
+    RESP="y"
     EXPORTED=true
     mkdir -p "$DELIV_SRC"
     cat > "$DELIV_SRC/main.py" <<'EOF2'
@@ -283,6 +280,7 @@ This program computes a simple affine numerical scan over a grid and records san
 - Edit \`params.alpha\`, \`params.beta\`, and \`params.grid\` in \`spec.yaml\`.
 EOF2
   else
+    RESP="n"
     rm -rf "$DELIV_SRC"
   fi
 else
