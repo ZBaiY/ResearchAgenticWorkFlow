@@ -1,6 +1,9 @@
 name: referee_redteam_prl
 title: PRL Referee Red Team
 description: Produce a critical referee-style report focused on PRL standards.
+run: scripts/run.sh
+prompt: prompts/prompt.md
+schema: schemas/schema.json
 keywords:
   - prl
   - referee

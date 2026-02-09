@@ -10,12 +10,16 @@
         "manuscript",
         "paper",
         "meta",
+        "metadata",
         "keywords",
+        "keywards",
         "categories",
         "arxiv",
         "latex",
         "tex",
-        "profile"
+        "profile",
+        "configurate",
+        "initialization"
       ],
       "all_keywords": [
         "draft",

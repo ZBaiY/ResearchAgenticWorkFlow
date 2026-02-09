@@ -1,6 +1,9 @@
 name: nature_comm_writer
 title: Nature Communications Writer
 description: Improve broad-audience narrative clarity and figure-led storytelling.
+run: scripts/run.sh
+prompt: prompts/prompt.md
+schema: schemas/schema.json
 keywords:
   - nature
   - narrative

@@ -1,5 +1,13 @@
 # Workflow Audit
 
+## 2026-02-09 What Changed
+- `bart` now uses product-style routing output: request line, mode+score, ranked candidates with reasons, low-confidence warning, and a short `Next` block.
+- `bart` remains pick-required by default, supports informal pick strings (`pick1`, `candidate3`, `i choose 1`, `1`), and keeps deterministic task names as `<skill>_<UTCSTAMP>`.
+- `bart --start` and `bart --run` are now strictly separated; non-interactive `--run` requires `--yes` or `--no` with a clear fail-fast message.
+- `--full-agent` remains opt-in and dangerous; it auto-picks and executes with compact structured output.
+- Router policy now includes typo-heavy metadata phrases (`configurate`, `keywards`, `initialization`) to map to `paper_profile_update`.
+- Skill directory layout has been standardized with `prompts/`, `scripts/`, `resources/`, and `schema/` folders while preserving compatibility.
+
 ## Implemented
 - Skill discovery and deterministic ranking from metadata are implemented in `bin/agenthub` (`index`, `suggest`, score by `name/title/description/keywords`, deterministic tie ordering).
 - Task bootstrap writes both request and metadata:

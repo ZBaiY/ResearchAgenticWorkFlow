@@ -27,3 +27,4 @@ build/
 AGENTS/tasks/
 AGENTS/tasks/**/work/__pycache__/
 AGENTS/cache/
+GATE/staged/

@@ -1,5 +1,3 @@
 # Request
 Goal:
-TBD
-Constraints:
-- TBD
+Build paper profile for regression test.

@@ -1,6 +1,9 @@
 name: prl_writer
 title: PRL Style Writer
 description: Tighten manuscripts for PRL tone, concision, and structure.
+run: scripts/run.sh
+prompt: prompts/prompt.md
+schema: schemas/schema.json
 keywords:
   - prl
   - letter

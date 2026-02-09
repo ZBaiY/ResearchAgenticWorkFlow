@@ -75,12 +75,16 @@ def parse_skill_yaml(path: Path) -> Tuple[Dict[str, Any], List[str]]:
         "name": "",
         "title": "",
         "description": "",
+        "run": "scripts/run.sh",
+        "prompt": "prompts/prompt.md",
+        "schema": "schemas/schema.json",
         "keywords": [],
         "outputs": [],
         "requires_network": False,
         "preferred_runner": [],
         "risk": "medium",
         "confirmations": [],
+        "clarification_policy": "auto",
     }
     if not path.exists():
         warnings.append("missing skill.yaml")
@@ -97,7 +101,7 @@ def parse_skill_yaml(path: Path) -> Tuple[Dict[str, Any], List[str]]:
         if not m:
             continue
         key, val = m.group(1), m.group(2).strip()
-        if key in {"name", "title", "description", "risk"}:
+        if key in {"name", "title", "description", "risk", "clarification_policy", "run", "prompt", "schema"}:
             data[key] = strip_quotes(val)
         elif key == "requires_network":
             data[key] = val.lower() == "true"
@@ -133,6 +137,8 @@ def parse_skill_yaml(path: Path) -> Tuple[Dict[str, Any], List[str]]:
     if not isinstance(data.get("keywords"), list):
         warnings.append("skill.yaml keywords malformed")
         data["keywords"] = []
+    if data.get("run") != "scripts/run.sh":
+        warnings.append("skill.yaml run must be scripts/run.sh")
     return data, warnings
 
 
@@ -149,9 +155,13 @@ def build_index(root: Path) -> Dict[str, Any]:
             continue
         name = p.name
         sy = p / "skill.yaml"
-        prompt = p / "prompt.md"
-        runsh = p / "run.sh"
         meta, warns = parse_skill_yaml(sy)
+        prompt_rel = str(meta.get("prompt", "prompts/prompt.md"))
+        run_rel = str(meta.get("run", "scripts/run.sh"))
+        schema_rel = str(meta.get("schema", "schemas/schema.json"))
+        prompt = p / prompt_rel
+        runsh = p / run_rel
+        schema = p / schema_rel
         degraded = not sy.exists() or len(warns) > 0
         if degraded:
             desc = ""
@@ -173,14 +183,19 @@ def build_index(root: Path) -> Dict[str, Any]:
             "path": str(p.relative_to(root)),
             "title": meta.get("title", name),
             "description": meta.get("description", ""),
+            "run": run_rel,
+            "prompt": prompt_rel,
+            "schema": schema_rel,
             "keywords": meta.get("keywords", []),
             "outputs": meta.get("outputs", []),
             "requires_network": bool(meta.get("requires_network", False)),
             "preferred_runner": meta.get("preferred_runner", []),
             "risk": meta.get("risk", "medium"),
             "confirmations": meta.get("confirmations", []),
+            "clarification_policy": meta.get("clarification_policy", "auto"),
             "has_run_sh": runsh.exists(),
             "has_prompt_md": prompt.exists(),
+            "has_schema": schema.exists(),
             "degraded": degraded,
             "warnings": warns,
         }
@@ -409,6 +424,17 @@ def infer_skill(root: Path, task_id: str) -> str:
     return ""
 
 
+def skill_clarification_policy(root: Path, skill: str, smeta: Dict[str, Any]) -> str:
+    p = str(smeta.get("clarification_policy", "")).strip().lower()
+    if p in {"ask_user", "auto"}:
+        return p
+    meta, _ = parse_skill_yaml(skills_dir(root) / skill / "skill.yaml")
+    p2 = str(meta.get("clarification_policy", "auto")).strip().lower()
+    if p2 in {"ask_user", "auto"}:
+        return p2
+    return "auto"
+
+
 def resolve_output_paths(root: Path, task_id: str, skill_meta: Dict[str, Any], skill: str) -> Tuple[str, str, str, str]:
     patch = "NONE"
     report = "NONE"
@@ -528,12 +554,63 @@ def write_error_report(root: Path, task_id: str, phase: str, err: Exception, std
     return str(out.relative_to(root))
 
 
-def print_error_summary(err: Exception, report_path: str) -> None:
+def parse_missing_from_error_report(root: Path, report_path: str) -> str:
+    p = root / report_path
+    if not p.exists():
+        return ""
+    try:
+        text = p.read_text(encoding="utf-8", errors="ignore")
+    except Exception:
+        return ""
+    m = re.search(r"^missing:\s*(.+)$", text, flags=re.M | re.I)
+    if m:
+        val = m.group(1).strip()
+        if val in {"[]", '[""]', ""}:
+            return ""
+        return val
+    m2 = re.search(r"^MISSING=([^\n]+)$", text, flags=re.M)
+    if m2:
+        return m2.group(1).strip()
+    return ""
+
+
+def parse_detail_lines_from_error_report(root: Path, report_path: str) -> List[str]:
+    p = root / report_path
+    if not p.exists():
+        return []
+    try:
+        text = p.read_text(encoding="utf-8", errors="ignore")
+    except Exception:
+        return []
+    details: List[str] = []
+    for key in ["error_code", "completeness_rules", "online_lookup", "stop_reason"]:
+        m = re.search(rf"^{key}:\s*(.+)$", text, flags=re.M | re.I)
+        if m:
+            details.append(f"{key}: {m.group(1).strip()}")
+    m_next = re.search(r"^next_actions:\s*$([\s\S]+)", text, flags=re.M)
+    if m_next:
+        after = m_next.group(1).splitlines()
+        for ln in after:
+            s = ln.strip()
+            if s.startswith("- "):
+                details.append(f"next_action: {s[2:].strip()}")
+                break
+    return details[:6]
+
+
+def print_error_summary(root: Path, err: Exception, report_path: str) -> None:
     short = str(err).strip().splitlines()[0] if str(err).strip() else err.__class__.__name__
     if len(short) > 140:
         short = short[:137] + "..."
+    if isinstance(err, SkillSubprocessError):
+        short = f"{err.skill} exited non-zero (exit code {err.returncode})"
     print(f"ERROR={short}", file=sys.stderr)
     print(f"SEE={report_path}", file=sys.stderr)
+    missing = parse_missing_from_error_report(root, report_path)
+    if missing:
+        print(f"MISSING={missing}", file=sys.stderr)
+    for d in parse_detail_lines_from_error_report(root, report_path):
+        print(d, file=sys.stderr)
     print("EXIT=nonzero", file=sys.stderr)
 
 
@@ -547,27 +624,28 @@ def cmd_run(root: Path, args: argparse.Namespace) -> int:
             raise RuntimeError("Missing skill. Provide --skill or set skill in AGENTS/tasks/<task_id>/meta.json")
 
         smeta = load_skill_from_index(idx, skill)
-        confirmations = smeta.get("confirmations", []) if smeta else []
-        for c in confirmations:
-            print(f"CONFIRM_NOTE={c}")
+        if not smeta:
+            meta, _ = parse_skill_yaml(skills_dir(root) / skill / "skill.yaml")
+            smeta = {"name": skill, "run": meta.get("run", "scripts/run.sh")}
+        run_rel = str(smeta.get("run", "scripts/run.sh")).strip()
+        if run_rel != "scripts/run.sh":
+            raise RuntimeError(f"SKILL_ENTRYPOINT_INVALID skill={skill} run={run_rel} required=scripts/run.sh")
 
         if args.yes and args.no:
             raise RuntimeError("Use only one of --yes or --no.")
 
-        approval_mode = "prompt"
+        interactive_tty = sys.stdin.isatty()
+
+        approval_mode = "interactive"
         if args.yes:
             approval_mode = "yes"
         elif args.no:
             approval_mode = "no"
-
-        if approval_mode == "no":
-            print("ABORTED=true")
-            return 1
+        elif not interactive_tty:
+            approval_mode = "no"
 
         phase = "prompt"
-        if approval_mode == "prompt":
-            if not sys.stdin.isatty():
-                raise NonInteractivePromptError("Non-interactive shell. Re-run with --yes or --no.")
+        if approval_mode == "interactive":
             ok, interactive_error = prompt_yes_no("Proceed with run? [y/N]: ")
             if interactive_error:
                 raise NonInteractivePromptError("Non-interactive shell. Re-run with --yes or --no.")
@@ -577,8 +655,11 @@ def cmd_run(root: Path, args: argparse.Namespace) -> int:
 
         phase = "skill_run"
         env = os.environ.copy()
-        env["AGENTHUB_APPROVAL"] = approval_mode
-        env["AGENTHUB_INTERACTIVE"] = "1" if sys.stdin.isatty() else "0"
+        env["APPROVAL_MODE"] = approval_mode
+        env["APPROVAL_INTERACTIVE"] = "1" if interactive_tty else "0"
+        env["ALLOW_USER_WRITE"] = "1" if args.write_user else "0"
+        env["SKILL_CLARIFICATION_POLICY"] = skill_clarification_policy(root, skill, smeta)
+        env["ONLINE_LOOKUP"] = "1" if (args.online or args.net) else "0"
         cp = subprocess.run(
             [str(root / "bin" / "agentctl"), "run", skill, "--task", task_id],
             cwd=str(root),
@@ -614,8 +695,12 @@ def cmd_run(root: Path, args: argparse.Namespace) -> int:
         print(f"- Promotion Hint: {promotion_hint or 'NONE'}")
         return 0
     except Exception as err:
-        report = write_error_report(root, task_id, phase=phase, err=err, stderr_hint=getattr(err, "stderr", ""))
-        print_error_summary(err, report)
+        skill_error = tasks_dir(root) / task_id / "review" / "error.md"
+        if isinstance(err, SkillSubprocessError) and skill_error.exists():
+            report = str(skill_error.relative_to(root))
+        else:
+            report = write_error_report(root, task_id, phase=phase, err=err, stderr_hint=getattr(err, "stderr", ""))
+        print_error_summary(root, err, report)
         return 2
 
 
@@ -647,8 +732,15 @@ def cmd_doctor(root: Path) -> int:
     sdir = skills_dir(root)
     if sdir.exists():
         for s in sorted(sdir.iterdir()):
-            if s.is_dir() and not (s / "run.sh").exists():
-                errors.append(f"missing_run_sh:{s.relative_to(root)}")
+            if not s.is_dir():
+                continue
+            if not (s / "scripts" / "run.sh").exists():
+                errors.append(f"missing_run_sh:{s.relative_to(root)}/scripts/run.sh")
+            if (s / "run.sh").exists() or (s / "prompt.md").exists() or (s / "schema.json").exists():
+                errors.append(f"root_duplicate_files:{s.relative_to(root)}")
+            meta, warns = parse_skill_yaml(s / "skill.yaml")
+            if str(meta.get("run", "")).strip() != "scripts/run.sh":
+                errors.append(f"invalid_runner_path:{s.relative_to(root)}/skill.yaml")
 
     if errors:
         for e in errors:
@@ -682,6 +774,9 @@ def main() -> int:
     prun.add_argument("--skill", default=None)
     prun.add_argument("--yes", action="store_true")
     prun.add_argument("--no", action="store_true")
+    prun.add_argument("--write-user", action="store_true")
+    prun.add_argument("--online", action="store_true")
+    prun.add_argument("--net", action="store_true")
 
     pname = sub.add_parser("task-name")
     pname.add_argument("--skill", required=True)

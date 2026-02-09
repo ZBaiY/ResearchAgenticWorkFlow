@@ -1,6 +1,9 @@
 name: jcap_writer
 title: JCAP Style Writer
 description: Prepare JCAP-oriented manuscript edits and structure checks.
+run: scripts/run.sh
+prompt: prompts/prompt.md
+schema: schemas/schema.json
 keywords:
   - jcap
   - manuscript

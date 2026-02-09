@@ -1,6 +1,9 @@
 name: compute_symbolic
 title: Symbolic Compute (Mathematica)
 description: Run symbolic computations with wolframscript/math and export source on consent.
+run: scripts/run.sh
+prompt: prompts/prompt.md
+schema: schemas/schema.json
 keywords:
   - compute
   - symbolic

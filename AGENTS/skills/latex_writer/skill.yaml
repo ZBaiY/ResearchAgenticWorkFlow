@@ -1,6 +1,9 @@
 name: latex_writer
 title: Generic LaTeX Writer
 description: Shadow-edit LaTeX content and produce patch-oriented deliverables.
+run: scripts/run.sh
+prompt: prompts/prompt.md
+schema: schemas/schema.json
 keywords:
   - latex
   - manuscript

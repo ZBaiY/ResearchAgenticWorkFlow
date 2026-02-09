@@ -1,6 +1,9 @@
 name: compute_numerical
 title: Numerical Compute (Python)
 description: Run numerical computations in Python with reproducibility logs and export-on-consent flow.
+run: scripts/run.sh
+prompt: prompts/prompt.md
+schema: schemas/schema.json
 keywords:
   - compute
   - numerical

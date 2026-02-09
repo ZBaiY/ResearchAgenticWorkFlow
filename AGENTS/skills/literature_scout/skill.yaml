@@ -1,6 +1,9 @@
 name: literature_scout
 title: Literature Scout
 description: Multi-method literature retrieval with keyword search, seed graph expansion, and external ingestion.
+run: scripts/run.sh
+prompt: prompts/prompt.md
+schema: schemas/schema.json
 keywords:
   - literature
   - papers

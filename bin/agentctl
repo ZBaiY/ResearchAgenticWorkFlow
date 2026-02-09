@@ -58,11 +58,14 @@ run_skill() {
   [[ -d "$sdir" ]] || { echo "Skill not found: $skill"; exit 2; }
   [[ -d "$tdir" ]] || { echo "Task not found: $task_id"; exit 2; }
 
-  # Convention: each skill has run.sh (optional) and prompt.md (required)
-  if [[ -f "$sdir/run.sh" ]]; then
-    bash "$sdir/run.sh" "$ROOT" "$task_id"
+  local runner="$sdir/scripts/run.sh"
+  if [[ -f "$runner" ]]; then
+    TASK_DIR="$tdir" \
+    SKILL_DIR="$sdir" \
+    REQUEST_PATH="$tdir/request.md" \
+      bash "$runner" "$ROOT" "$task_id"
   else
-    echo "No run.sh for skill '$skill'. See: $sdir"
+    echo "No runner for skill '$skill'. See: $sdir"
     exit 2
   fi
 }

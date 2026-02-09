@@ -1,5 +1,5 @@
 {
-  "generated_at_utc": "2026-02-09T12:19:55Z",
+  "generated_at_utc": "2026-02-09T16:05:06Z",
   "repo_root": "/Users/zhaoyub/Desktop/PHYSICS/AgenticWorkflow",
   "skills": [
     {
@@ -7,6 +7,9 @@
       "path": "AGENTS/skills/compute",
       "title": "Compute Job Scaffold (Deprecated)",
       "description": "Deprecated generic compute skill; use compute_numerical or compute_symbolic instead.",
+      "run": "scripts/run.sh",
+      "prompt": "prompts/prompt.md",
+      "schema": "schemas/schema.json",
       "keywords": [
         "compute",
         "simulation",
@@ -29,8 +32,10 @@
       "confirmations": [
         "Deprecated skill. Prefer compute_numerical (Python) or compute_symbolic (Mathematica)."
       ],
+      "clarification_policy": "ask_user",
       "has_run_sh": true,
       "has_prompt_md": true,
+      "has_schema": true,
       "degraded": false,
       "warnings": []
     },
@@ -39,6 +44,9 @@
       "path": "AGENTS/skills/compute_numerical",
       "title": "Numerical Compute (Python)",
       "description": "Run numerical computations in Python with reproducibility logs and export-on-consent flow.",
+      "run": "scripts/run.sh",
+      "prompt": "prompts/prompt.md",
+      "schema": "schemas/schema.json",
       "keywords": [
         "compute",
         "numerical",
@@ -61,8 +69,10 @@
       "confirmations": [
         "Executes Python code in task sandbox and may prompt for source export."
       ],
+      "clarification_policy": "auto",
       "has_run_sh": true,
       "has_prompt_md": true,
+      "has_schema": true,
       "degraded": false,
       "warnings": []
     },
@@ -71,6 +81,9 @@
       "path": "AGENTS/skills/compute_symbolic",
       "title": "Symbolic Compute (Mathematica)",
       "description": "Run symbolic computations with wolframscript/math and export source on consent.",
+      "run": "scripts/run.sh",
+      "prompt": "prompts/prompt.md",
+      "schema": "schemas/schema.json",
       "keywords": [
         "compute",
         "symbolic",
@@ -93,8 +106,10 @@
       "confirmations": [
         "Executes Wolfram symbolic code in task sandbox and may prompt for source export."
       ],
+      "clarification_policy": "auto",
       "has_run_sh": true,
       "has_prompt_md": true,
+      "has_schema": true,
       "degraded": false,
       "warnings": []
     },
@@ -103,6 +118,9 @@
       "path": "AGENTS/skills/diffpack",
       "title": "Patchset Packager",
       "description": "Prepare patchset deliverable scaffolding for task outputs.",
+      "run": "scripts/run.sh",
+      "prompt": "prompts/prompt.md",
+      "schema": "schemas/schema.json",
       "keywords": [
         "patch",
         "diff",
@@ -124,8 +142,10 @@
       "confirmations": [
         "Generates patch packaging artifacts only; no USER/GATE writes."
       ],
+      "clarification_policy": "auto",
       "has_run_sh": true,
       "has_prompt_md": true,
+      "has_schema": true,
       "degraded": false,
       "warnings": []
     },
@@ -134,6 +154,9 @@
       "path": "AGENTS/skills/jcap_writer",
       "title": "JCAP Style Writer",
       "description": "Prepare JCAP-oriented manuscript edits and structure checks.",
+      "run": "scripts/run.sh",
+      "prompt": "prompts/prompt.md",
+      "schema": "schemas/schema.json",
       "keywords": [
         "jcap",
         "manuscript",
@@ -156,8 +179,10 @@
       "confirmations": [
         "Uses shadow tree only and never writes USER/GATE."
       ],
+      "clarification_policy": "auto",
       "has_run_sh": true,
       "has_prompt_md": true,
+      "has_schema": true,
       "degraded": false,
       "warnings": []
     },
@@ -166,6 +191,9 @@
       "path": "AGENTS/skills/jhep_writer",
       "title": "JHEP Style Writer",
       "description": "Prepare JHEP-oriented manuscript edits and frontmatter checks.",
+      "run": "scripts/run.sh",
+      "prompt": "prompts/prompt.md",
+      "schema": "schemas/schema.json",
       "keywords": [
         "jhep",
         "manuscript",
@@ -188,8 +216,10 @@
       "confirmations": [
         "Keeps edits patch-oriented and shadow-only."
       ],
+      "clarification_policy": "auto",
       "has_run_sh": true,
       "has_prompt_md": true,
+      "has_schema": true,
       "degraded": false,
       "warnings": []
     },
@@ -198,6 +228,9 @@
       "path": "AGENTS/skills/latex_writer",
       "title": "Generic LaTeX Writer",
       "description": "Shadow-edit LaTeX content and produce patch-oriented deliverables.",
+      "run": "scripts/run.sh",
+      "prompt": "prompts/prompt.md",
+      "schema": "schemas/schema.json",
       "keywords": [
         "latex",
         "manuscript",
@@ -220,8 +253,10 @@
       "confirmations": [
         "Applies edits only in AGENTS shadow tree."
       ],
+      "clarification_policy": "auto",
       "has_run_sh": true,
       "has_prompt_md": true,
+      "has_schema": true,
       "degraded": false,
       "warnings": []
     },
@@ -230,6 +265,9 @@
       "path": "AGENTS/skills/literature_scout",
       "title": "Literature Scout",
       "description": "Multi-method literature retrieval with keyword search, seed graph expansion, and external ingestion.",
+      "run": "scripts/run.sh",
+      "prompt": "prompts/prompt.md",
+      "schema": "schemas/schema.json",
       "keywords": [
         "literature",
         "papers",
@@ -256,8 +294,10 @@
         "May call official APIs (arXiv/INSPIRE/Semantic Scholar) within configured budget.",
         "If method is missing, interactive method selection prompt will appear."
       ],
+      "clarification_policy": "auto",
       "has_run_sh": true,
       "has_prompt_md": true,
+      "has_schema": true,
       "degraded": false,
       "warnings": []
     },
@@ -266,6 +306,9 @@
       "path": "AGENTS/skills/nature_comm_writer",
       "title": "Nature Communications Writer",
       "description": "Improve broad-audience narrative clarity and figure-led storytelling.",
+      "run": "scripts/run.sh",
+      "prompt": "prompts/prompt.md",
+      "schema": "schemas/schema.json",
       "keywords": [
         "nature",
         "narrative",
@@ -288,8 +331,10 @@
       "confirmations": [
         "Emphasizes narrative and clarity without changing scientific meaning."
       ],
+      "clarification_policy": "auto",
       "has_run_sh": true,
       "has_prompt_md": true,
+      "has_schema": true,
       "degraded": false,
       "warnings": []
     },
@@ -298,6 +343,9 @@
       "path": "AGENTS/skills/paper_profile_update",
       "title": "Paper Profile Update",
       "description": "Build/update a paper metadata profile (keywords, categories, short blurb, themes) from USER paper/notes and stage to GATE on consent.",
+      "run": "scripts/run.sh",
+      "prompt": "prompts/prompt.md",
+      "schema": "schemas/schema.json",
       "keywords": [
         "paper profile",
         "metadata",
@@ -321,8 +369,10 @@
         "By default this skill does not write USER and stages to GATE only on consent.",
         "Optional write_to_user=true requires explicit WRITE USER confirmation."
       ],
+      "clarification_policy": "auto",
       "has_run_sh": true,
       "has_prompt_md": true,
+      "has_schema": true,
       "degraded": false,
       "warnings": []
     },
@@ -331,6 +381,9 @@
       "path": "AGENTS/skills/prd_writer",
       "title": "Product Requirements Writer",
       "description": "Generate structured PRD artifacts from task request and context files.",
+      "run": "scripts/run.sh",
+      "prompt": "prompts/prompt.md",
+      "schema": "schemas/schema.json",
       "keywords": [
         "prd",
         "requirements",
@@ -353,8 +406,10 @@
       "confirmations": [
         "Produces planning docs only; does not execute product changes."
       ],
+      "clarification_policy": "auto",
       "has_run_sh": true,
       "has_prompt_md": true,
+      "has_schema": true,
       "degraded": false,
       "warnings": []
     },
@@ -363,6 +418,9 @@
       "path": "AGENTS/skills/prl_writer",
       "title": "PRL Style Writer",
       "description": "Tighten manuscripts for PRL tone, concision, and structure.",
+      "run": "scripts/run.sh",
+      "prompt": "prompts/prompt.md",
+      "schema": "schemas/schema.json",
       "keywords": [
         "prl",
         "letter",
@@ -385,8 +443,10 @@
       "confirmations": [
         "Do not change calculations or scientific meaning."
       ],
+      "clarification_policy": "auto",
       "has_run_sh": true,
       "has_prompt_md": true,
+      "has_schema": true,
       "degraded": false,
       "warnings": []
     },
@@ -395,6 +455,9 @@
       "path": "AGENTS/skills/referee_redteam_prl",
       "title": "PRL Referee Red Team",
       "description": "Produce a critical referee-style report focused on PRL standards.",
+      "run": "scripts/run.sh",
+      "prompt": "prompts/prompt.md",
+      "schema": "schemas/schema.json",
       "keywords": [
         "prl",
         "referee",
@@ -417,8 +480,10 @@
       "confirmations": [
         "Review may include hard rejection-level findings."
       ],
+      "clarification_policy": "auto",
       "has_run_sh": true,
       "has_prompt_md": true,
+      "has_schema": true,
       "degraded": false,
       "warnings": []
     },
@@ -427,6 +492,9 @@
       "path": "AGENTS/skills/slide_preparation",
       "title": "Slide Preparation",
       "description": "Create talk slide deck skeleton (outline + notes + figure plan) and optionally build pptx.",
+      "run": "scripts/run.sh",
+      "prompt": "prompts/prompt.md",
+      "schema": "schemas/schema.json",
       "keywords": [
         "slides",
         "ppt",
@@ -455,8 +523,10 @@
         "This will read USER paper/figures but will not modify them.",
         "Export requires explicit consent."
       ],
+      "clarification_policy": "auto",
       "has_run_sh": true,
       "has_prompt_md": true,
+      "has_schema": true,
       "degraded": false,
       "warnings": []
     }

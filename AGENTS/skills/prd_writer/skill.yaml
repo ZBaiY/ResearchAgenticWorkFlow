@@ -1,6 +1,9 @@
 name: prd_writer
 title: Product Requirements Writer
 description: Generate structured PRD artifacts from task request and context files.
+run: scripts/run.sh
+prompt: prompts/prompt.md
+schema: schemas/schema.json
 keywords:
   - prd
   - requirements

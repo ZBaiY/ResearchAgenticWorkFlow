@@ -1,6 +1,9 @@
 name: jhep_writer
 title: JHEP Style Writer
 description: Prepare JHEP-oriented manuscript edits and frontmatter checks.
+run: scripts/run.sh
+prompt: prompts/prompt.md
+schema: schemas/schema.json
 keywords:
   - jhep
   - manuscript

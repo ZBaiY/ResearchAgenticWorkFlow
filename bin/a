@@ -8,7 +8,7 @@ import subprocess
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional, Tuple
 
 
 def repo_root() -> Path:
@@ -32,8 +32,12 @@ def load_json(path: Path) -> Dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def compute_base_score(skill: Dict[str, Any], query: str) -> float:
-    qtokens = re.findall(r"[a-z0-9_+-]+", query.lower())
+def tokenize(text: str) -> List[str]:
+    return re.findall(r"[a-z0-9_+\-]+", text.lower())
+
+
+def query_matches_skill(skill: Dict[str, Any], query: str) -> List[str]:
+    qtokens = tokenize(query)
     fields = " ".join(
         [
             skill.get("name", ""),
@@ -42,17 +46,29 @@ def compute_base_score(skill: Dict[str, Any], query: str) -> float:
             " ".join(skill.get("keywords", []) or []),
         ]
     ).lower()
-    score = 0.0
+    out: List[str] = []
+    seen = set()
     for t in qtokens:
-        if t in fields:
-            score += 1.0
+        if t in fields and t not in seen:
+            out.append(t)
+            seen.add(t)
+    return out[:4]
+
+
+def compute_base_score(skill: Dict[str, Any], query: str) -> Tuple[float, List[str]]:
+    matches = query_matches_skill(skill, query)
+    score = float(len(matches))
     name = skill.get("name", "").lower()
     if name and name in query.lower():
         score += 3.0
-    return score
+        if "skill_name" not in matches:
+            matches.append("skill_name")
+    return score, matches
 
 
-def apply_router_boosts(entries: Dict[str, Dict[str, Any]], query: str, router_cfg: Dict[str, Any]) -> None:
+def apply_router_boosts(
+    entries: Dict[str, Dict[str, Any]], query: str, router_cfg: Dict[str, Any]
+) -> None:
     q = query.lower()
     for rule in router_cfg.get("rules", []):
         skill = rule.get("skill", "")
@@ -61,7 +77,9 @@ def apply_router_boosts(entries: Dict[str, Dict[str, Any]], query: str, router_c
         ent = entries[skill]
         any_keywords = [x.lower() for x in rule.get("any_keywords", []) if isinstance(x, str)]
         all_keywords = [x.lower() for x in rule.get("all_keywords", []) if isinstance(x, str)]
-        negative_keywords = [x.lower() for x in rule.get("negative_keywords", []) if isinstance(x, str)]
+        negative_keywords = [
+            x.lower() for x in rule.get("negative_keywords", []) if isinstance(x, str)
+        ]
         boost = float(rule.get("boost", 0.0))
         boost_all = float(rule.get("boost_all", boost))
         penalty = float(rule.get("penalty", boost))
@@ -72,19 +90,22 @@ def apply_router_boosts(entries: Dict[str, Dict[str, Any]], query: str, router_c
 
         if any_hits:
             ent["score"] += boost
-            ent["boost_reasons"].extend(any_hits)
+            ent["reasons"].extend([f"kw:{k}" for k in any_hits])
         if all_keywords and len(all_hits) == len(all_keywords):
             ent["score"] += boost_all
-            ent["boost_reasons"].extend(all_hits)
+            ent["reasons"].extend([f"all:{k}" for k in all_hits])
         if neg_hits:
             ent["score"] -= penalty
-            ent["boost_reasons"].extend([f"!{k}" for k in neg_hits])
+            ent["reasons"].extend([f"neg:{k}" for k in neg_hits])
 
 
 def build_ranking(root: Path, query: str) -> List[Dict[str, Any]]:
     idx_path = root / "AGENTS" / "runtime" / "skills_index.json"
     if not idx_path.exists():
-        raise RuntimeError("skills index missing: AGENTS/runtime/skills_index.json (run ./bin/agenthub index)")
+        raise RuntimeError(
+            "skills index missing: AGENTS/runtime/skills_index.json "
+            "(run ./bin/agenthub index)"
+        )
     idx = load_json(idx_path)
     router_cfg = load_json(root / "AGENTS" / "runtime" / "intent_router.json")
     skills = idx.get("skills", [])
@@ -94,22 +115,32 @@ def build_ranking(root: Path, query: str) -> List[Dict[str, Any]]:
         name = s.get("name", "")
         if not name:
             continue
-        base = compute_base_score(s, query)
+        base_score, base_terms = compute_base_score(s, query)
         entries[name] = {
             "name": name,
             "description": (s.get("description", "") or "").strip(),
-            "base_score": base,
-            "score": base,
-            "boost_reasons": [],
+            "base_score": base_score,
+            "score": base_score,
+            "reasons": [f"match:{x}" for x in base_terms],
         }
 
     apply_router_boosts(entries, query, router_cfg)
     ranked = list(entries.values())
+    for rec in ranked:
+        dedup = []
+        seen = set()
+        for x in rec.get("reasons", []):
+            if x not in seen:
+                dedup.append(x)
+                seen.add(x)
+        rec["reasons"] = dedup[:6]
     ranked.sort(key=lambda x: (-x["score"], x["name"]))
     return ranked
 
 
-def decide_candidates(ranked: List[Dict[str, Any]], policy: Dict[str, Any], k_override: int | None) -> Dict[str, Any]:
+def decide_candidates(
+    ranked: List[Dict[str, Any]], policy: Dict[str, Any], k_override: Optional[int]
+) -> Dict[str, Any]:
     t_low = float(policy.get("T_low", 15))
     t_multi = float(policy.get("T_multi", 35))
     t_high = float(policy.get("T_high", 50))
@@ -123,7 +154,7 @@ def decide_candidates(ranked: List[Dict[str, Any]], policy: Dict[str, Any], k_ov
             "mode": "LOWCONF",
             "warn_no_match": True,
             "candidates": [],
-            "truncated": False,
+            "must_show": set(),
         }
 
     best = ranked[0]
@@ -135,23 +166,42 @@ def decide_candidates(ranked: List[Dict[str, Any]], policy: Dict[str, Any], k_ov
     elif best["score"] >= t_high:
         mode = "HIGHCONF"
 
-    must_show = [r for r in ranked if r["score"] >= t_multi]
-    truncated = False
-    if must_show:
-        candidates = must_show[:k_max]
-        truncated = len(must_show) > k_max
-    else:
-        k = k_override if k_override is not None else k_default
-        k = max(1, min(k, k_max))
-        candidates = ranked[:k]
+    must_show_names = {r["name"] for r in ranked if r["score"] >= t_multi}
+    k = k_override if k_override is not None else k_default
+    k = max(1, min(k, k_max))
+
+    selected: List[Dict[str, Any]] = []
+    seen = set()
+
+    # Always include top-1.
+    for rec in ranked:
+        if rec["name"] == best["name"]:
+            selected.append(rec)
+            seen.add(rec["name"])
+            break
+
+    # Fill top-K.
+    for rec in ranked:
+        if len(selected) >= k:
+            break
+        if rec["name"] in seen:
+            continue
+        selected.append(rec)
+        seen.add(rec["name"])
+
+    # Add MUST_SHOW candidates regardless of K.
+    for rec in ranked:
+        if rec["name"] in must_show_names and rec["name"] not in seen:
+            selected.append(rec)
+            seen.add(rec["name"])
 
     return {
         "recommended": best["name"],
         "top1_score": best["score"],
         "mode": mode,
         "warn_no_match": warn_no_match,
-        "candidates": candidates,
-        "truncated": truncated,
+        "candidates": selected,
+        "must_show": must_show_names,
     }
 
 
@@ -215,7 +265,10 @@ def write_request_template(root: Path, task_name: str, query: str, full_agent: b
         if inputs:
             inputs_block = "\n".join(f"- {p}" for p in inputs)
         else:
-            inputs_block = "- USER/paper/**/*.tex (none found)\n- USER/notes/**/*.md (none found)"
+            inputs_block = (
+                "- USER/paper/**/*.tex (none found)\n"
+                "- USER/notes/**/*.md (none found)"
+            )
         content = (
             "# Request\n\n"
             "goal:\n"
@@ -242,39 +295,56 @@ def write_request_template(root: Path, task_name: str, query: str, full_agent: b
     return str(req_path.relative_to(root))
 
 
-def print_suggestions(query: str, decision: Dict[str, Any]) -> None:
+def normalize_pick_text(raw: str) -> Optional[int]:
+    m = re.search(r"(\d+)", raw)
+    if not m:
+        return None
+    try:
+        return int(m.group(1))
+    except ValueError:
+        return None
+
+
+def print_suggestions(query: str, decision: Dict[str, Any], k: Optional[int]) -> None:
     best = decision["recommended"]
     top1_score = decision["top1_score"]
     mode = decision["mode"]
     candidates = decision["candidates"]
+    must_show = decision.get("must_show", set())
 
-    print(f"RECOMMENDED_SKILL={best}")
-    print(f"TOP1_SCORE={top1_score:.1f}")
-    print(f"MODE={mode}")
-    if candidates:
-        top1 = candidates[0]
-        reason = ",".join(top1.get("boost_reasons", [])) or "none"
-        print(f"BOOST={top1['name']} reason={reason}")
-    print("CANDIDATES=")
+    print(f"Request: {query}")
+    print(f"Mode: {mode} (score={top1_score:.1f})")
+    print("Candidates:")
     for i, c in enumerate(candidates, start=1):
-        reason = ",".join(c.get("boost_reasons", []))
-        if reason:
-            print(f"  {i}) {c['name']} score={c['score']:.1f} boost={reason}")
-        else:
-            print(f"  {i}) {c['name']} score={c['score']:.1f}")
+        reasons = ",".join(c.get("reasons", [])) or "none"
+        suffix = " MUST_SHOW" if c["name"] in must_show else ""
+        print(
+            f"[{i}] {c['name']}  score={c['score']:.1f}  "
+            f"reasons={reasons}{suffix}"
+        )
 
-    if decision.get("truncated"):
-        print("WARN=TRUNCATED")
     if decision.get("warn_no_match"):
-        print("WARN=NO_GOOD_SKILL_MATCH (barefoot)")
-        print("HINT=use --skill <name> or rephrase request with keywords (draft/meta/compute/etc)")
-    print("PICK_REQUIRED=1")
+        print(
+            "WARNING: no suitable skill match (barefoot). "
+            "Consider rephrasing or using --skill."
+        )
+
+    print("Pick required: yes")
     escaped = query.replace('"', '\\"')
-    print(f'NEXT_1=./bart "{escaped}" --pick 1 --start')
-    print(f'NEXT_2=./bart "{escaped}" --skill {best} --start')
+    print("Next:")
+    print(f'  ./bart "{escaped}" --pick 1 --start')
+    if best:
+        print(f'  ./bart "{escaped}" --skill {best} --start')
 
 
-def run_full_agent(root: Path, query: str, ranked: List[Dict[str, Any]], policy: Dict[str, Any], decision: Dict[str, Any], stage_gate: bool) -> int:
+def run_full_agent(
+    root: Path,
+    query: str,
+    ranked: List[Dict[str, Any]],
+    policy: Dict[str, Any],
+    decision: Dict[str, Any],
+    stage_gate: bool,
+) -> int:
     if not ranked:
         print("MODE=FULL_AGENT")
         print(f"REQUEST={json.dumps(query)}")
@@ -286,7 +356,9 @@ def run_full_agent(root: Path, query: str, ranked: List[Dict[str, Any]], policy:
     top1_score = float(decision.get("top1_score", ranked[0]["score"]))
     t_low = float(policy.get("T_low", 15))
 
-    task_name_out = run_checked([str(root / "bin" / "agenthub"), "task-name", "--skill", selected], cwd=root).stdout
+    task_name_out = run_checked(
+        [str(root / "bin" / "agenthub"), "task-name", "--skill", selected], cwd=root
+    ).stdout
     task_name = parse_task_name(task_name_out) or f"{selected}_{utc_compact()}"
 
     req_rel = write_request_template(root, task_name, query, full_agent=True)
@@ -345,7 +417,7 @@ def run_full_agent(root: Path, query: str, ranked: List[Dict[str, Any]], policy:
     print(f"CHOSEN_SKILL={selected}")
     print(f"SCORE={top1_score:.1f}")
     if top1_score < t_low:
-        print("WARN=NO_GOOD_SKILL_MATCH (barefoot)")
+        print("WARN=NO_GOOD_SKILL_MATCH")
         print("RISK=HIGH")
     print(f"TASK={started_task}")
     print(f"REQUEST_FILE={req_rel}")
@@ -371,53 +443,64 @@ def main() -> int:
     root = repo_root()
     parser = argparse.ArgumentParser(
         prog="bart",
-        description="Deterministic skill router. Suggest-only by default; explicit pick/skill required to start.",
+        description=(
+            "Skill router. Default: route and require explicit pick before "
+            "--start/--run."
+        ),
     )
-    parser.add_argument("request", nargs="?", help="Free text request.")
-    parser.add_argument("--pick", type=int, default=None, help="Pick index from displayed candidates.")
+    parser.add_argument("request", nargs="*", help="Free-text request. Use quotes.")
+    parser.add_argument(
+        "--pick",
+        default=None,
+        help="Candidate index to pick; accepts forms like 1, pick1, candidate3.",
+    )
     parser.add_argument("--skill", default=None, help="Explicit skill name.")
-    parser.add_argument("--start", action="store_true", help="Start task for selected skill.")
-    parser.add_argument("--run", action="store_true", help="Run task after start (requires --start).")
+    parser.add_argument("--start", action="store_true", help="Start task.")
+    parser.add_argument("--run", action="store_true", help="Start (if needed) and run task.")
     parser.add_argument("--yes", action="store_true", help="Forward --yes to agenthub run.")
     parser.add_argument("--no", action="store_true", help="Forward --no to agenthub run.")
-    parser.add_argument("--k", type=int, default=None, help="Candidate count override when no must-show set.")
-    parser.add_argument("--full-agent", action="store_true", help="Autopilot mode: route, start, and run automatically.")
-    parser.add_argument("--stage-gate", action="store_true", help="With --full-agent, allow auto-staging to GATE.")
+    parser.add_argument("--k", type=int, default=None, help="Candidate count override.")
+    parser.add_argument(
+        "--full-agent",
+        action="store_true",
+        help="Dangerous autopilot: auto-pick, start, and run without pick confirmation.",
+    )
+    parser.add_argument(
+        "--stage-gate",
+        action="store_true",
+        help="With --full-agent, auto-stage to GATE when supported.",
+    )
     args = parser.parse_args()
 
     if not args.request:
         parser.print_usage(sys.stderr)
         return 2
 
+    query = " ".join(args.request).strip()
+    if not query:
+        parser.print_usage(sys.stderr)
+        return 2
+
     if args.full_agent:
-        if args.pick is not None or args.skill or args.start or args.run or args.yes or args.no:
-            print("ERROR=--full-agent cannot be combined with --pick/--skill/--start/--run/--yes/--no.", file=sys.stderr)
+        if args.pick is not None or args.skill:
+            print("ERROR=--full-agent cannot be combined with --pick/--skill.", file=sys.stderr)
             return 2
     else:
         if args.stage_gate:
             print("ERROR=--stage-gate requires --full-agent.", file=sys.stderr)
             return 2
-        if args.pick is not None and args.skill:
-            print("ERROR=Use only one of --pick or --skill.", file=sys.stderr)
-            return 2
-        if args.start and not (args.pick is not None or args.skill):
-            print("ERROR=--start requires --pick N or --skill <name>.", file=sys.stderr)
-            return 2
-        if args.run and not args.start:
-            print("ERROR=--run requires --start.", file=sys.stderr)
-            return 2
-        if args.yes and args.no:
-            print("ERROR=Use only one of --yes or --no.", file=sys.stderr)
-            return 2
-        if (args.yes or args.no) and not args.run:
-            print("ERROR=--yes/--no require --run.", file=sys.stderr)
-            return 2
 
     if args.k is not None and args.k < 1:
         print("ERROR=--k must be a positive integer.", file=sys.stderr)
         return 2
+    if args.yes and args.no:
+        print("ERROR=Use only one of --yes or --no.", file=sys.stderr)
+        return 2
 
-    query = args.request.strip()
+    if args.pick is not None and args.skill:
+        print("ERROR=Use only one of --pick or --skill.", file=sys.stderr)
+        return 2
+
     try:
         ranked = build_ranking(root, query)
         policy = load_json(root / "AGENTS" / "runtime" / "router_policy.json")
@@ -427,55 +510,87 @@ def main() -> int:
             return run_full_agent(root, query, ranked, policy, decision, stage_gate=args.stage_gate)
 
         if args.pick is None and args.skill is None:
-            print_suggestions(query, decision)
+            print_suggestions(query, decision, args.k)
             return 0
 
         selected = args.skill
         candidates = decision["candidates"]
+
         if selected is None:
-            if args.pick < 1 or args.pick > len(candidates):
+            parsed_pick = normalize_pick_text(str(args.pick))
+            if parsed_pick is None:
+                print("ERROR=Unable to parse --pick. Use 1, pick1, or candidate3.", file=sys.stderr)
+                return 2
+            if parsed_pick < 1 or parsed_pick > len(candidates):
                 print(f"ERROR=--pick out of range (1..{len(candidates)}).", file=sys.stderr)
                 return 2
-            selected = candidates[args.pick - 1]["name"]
+            selected = candidates[parsed_pick - 1]["name"]
 
         known = {r["name"] for r in ranked}
         if selected not in known:
             print(f"ERROR=Unknown skill: {selected}", file=sys.stderr)
             return 2
 
-        task_name_out = run_checked([str(root / "bin" / "agenthub"), "task-name", "--skill", selected], cwd=root).stdout
+        task_name_out = run_checked(
+            [str(root / "bin" / "agenthub"), "task-name", "--skill", selected], cwd=root
+        ).stdout
         task_name = parse_task_name(task_name_out)
         if not task_name:
             raise RuntimeError("unable to generate task name")
 
         req_rel = write_request_template(root, task_name, query, full_agent=False)
 
-        print(f"SELECTED_SKILL={selected}")
-        print(f"TASK_NAME={task_name}")
-        print(f"REQUEST_TEMPLATE={req_rel}")
+        print(f"Selected skill: {selected}")
+        print(f"Task name: {task_name}")
+        print(f"Request template: {req_rel}")
 
-        start_cmd = [str(root / "bin" / "agenthub"), "start", "--skill", selected, "--task-name", task_name, "--request", req_rel]
-        run_cmd = [str(root / "bin" / "agenthub"), "run", "--task", task_name]
-        if args.yes:
-            run_cmd.append("--yes")
-        if args.no:
-            run_cmd.append("--no")
+        start_cmd = [
+            str(root / "bin" / "agenthub"),
+            "start",
+            "--skill",
+            selected,
+            "--task-name",
+            task_name,
+            "--request",
+            req_rel,
+        ]
 
-        if not args.start:
-            print(f"NEXT_1={' '.join(shlex.quote(x) for x in start_cmd).replace(str(root) + '/', './')}")
-            print(f"NEXT_2={' '.join(shlex.quote(x) for x in run_cmd).replace(str(root) + '/', './')}")
+        if not args.start and not args.run:
+            pretty = " ".join(shlex.quote(x) for x in start_cmd)
+            pretty = pretty.replace(str(root) + "/", "./")
+            print("Next:")
+            print(f"  {pretty}")
             return 0
 
         start_out = run_checked(start_cmd, cwd=root).stdout.strip()
         if start_out:
             print(start_out)
         started_task = parse_started_task(start_out) or task_name
-        run_cmd = [str(root / "bin" / "agenthub"), "run", "--task", started_task] + run_cmd[4:]
-        print(f"RUN_COMMAND={' '.join(shlex.quote(x) for x in run_cmd).replace(str(root) + '/', './')}")
-        if args.run:
-            cp = subprocess.run(run_cmd, cwd=str(root), text=True)
-            return cp.returncode
-        return 0
+
+        if not args.run:
+            if args.yes:
+                print(f"RUN_COMMAND=./bin/agenthub run --task {started_task} --yes")
+            elif args.no:
+                print(f"RUN_COMMAND=./bin/agenthub run --task {started_task} --no")
+            else:
+                print(f"NEXT_RUN=./bin/agenthub run --task {started_task} --no")
+            return 0
+
+        run_cmd = [str(root / "bin" / "agenthub"), "run", "--task", started_task]
+        if args.yes:
+            run_cmd.append("--yes")
+        elif args.no:
+            run_cmd.append("--no")
+        else:
+            # Safe default: non-interactive approval mode is --no.
+            run_cmd.append("--no")
+
+        run_cmd_pretty = " ".join(shlex.quote(x) for x in run_cmd)
+        run_cmd_pretty = run_cmd_pretty.replace(str(root) + "/", "./")
+        print(f"RUN_COMMAND={run_cmd_pretty}")
+        sys.stdout.flush()
+        cp = subprocess.run(run_cmd, cwd=str(root), text=True)
+        return cp.returncode
     except Exception as err:
         msg = str(err).splitlines()[0] if str(err).strip() else err.__class__.__name__
         print(f"ERROR={msg}", file=sys.stderr)

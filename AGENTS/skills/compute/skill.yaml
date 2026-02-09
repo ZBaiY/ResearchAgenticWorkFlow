@@ -1,6 +1,9 @@
 name: compute
 title: Compute Job Scaffold (Deprecated)
 description: Deprecated generic compute skill; use compute_numerical or compute_symbolic instead.
+run: scripts/run.sh
+prompt: prompts/prompt.md
+schema: schemas/schema.json
 keywords:
   - compute
   - simulation
@@ -13,5 +16,6 @@ requires_network: false
 preferred_runner:
   - codex
 risk: medium
+clarification_policy: ask_user
 confirmations:
   - Deprecated skill. Prefer compute_numerical (Python) or compute_symbolic (Mathematica).

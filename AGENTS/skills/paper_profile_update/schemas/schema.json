@@ -1,0 +1,83 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "paper_profile",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "task_id": {"type": "string"},
+    "generated_at_utc": {"type": "string"},
+    "source_files": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "tex": {"type": "array", "items": {"type": "string"}},
+        "bib": {"type": "array", "items": {"type": "string"}}
+      },
+      "required": ["tex", "bib"]
+    },
+    "inputs_used": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "paper_tex": {"type": "array", "items": {"type": "string"}},
+        "notes": {"type": "array", "items": {"type": "string"}},
+        "references": {"type": "array", "items": {"type": "string"}},
+        "bib": {"type": "array", "items": {"type": "string"}}
+      },
+      "required": ["paper_tex", "notes", "references", "bib"]
+    },
+    "extraction": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "stopwords_version": {"type": "string"},
+        "df_ratio_max": {"type": "number"},
+        "df_min": {"type": "number"},
+        "top_k_keywords": {"type": "number"},
+        "top_k_bigrams": {"type": "number"},
+        "top_k_trigrams": {"type": "number"}
+      },
+      "required": ["stopwords_version", "df_ratio_max", "df_min", "top_k_keywords", "top_k_bigrams", "top_k_trigrams"]
+    },
+    "profile": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "field": {"type": "string"},
+        "field_confidence": {"type": "number"},
+        "field_evidence_terms": {"type": "array", "items": {"type": "string"}},
+        "keywords": {"type": "array", "items": {"type": "string"}},
+        "bigrams": {"type": "array", "items": {"type": "string"}},
+        "trigrams": {"type": "array", "items": {"type": "string"}},
+        "structured_phrases": {"type": "array", "items": {"type": "string"}},
+        "categories": {"type": "array", "items": {"type": "string"}},
+        "short_blurb": {"type": "string"},
+        "related_work_themes": {"type": "array", "items": {"type": "string"}},
+        "seed_papers": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": true,
+            "properties": {
+              "title": {"type": "string"},
+              "authors": {"type": "array", "items": {"type": "string"}},
+              "arxiv_id": {"type": ["string", "null"]},
+              "abstract": {"type": "string"},
+              "link": {"type": "string"},
+              "year": {"type": ["integer", "null"]},
+              "doi": {"type": ["string", "null"]},
+              "source": {"type": "object"},
+              "why": {"type": "array", "items": {"type": "string"}},
+              "cited": {"type": "boolean"}
+            },
+            "required": ["title", "authors", "arxiv_id", "abstract", "link"]
+          }
+        },
+        "unresolved_cites": {"type": "array", "items": {"type": "string"}}
+      },
+      "required": ["field", "field_confidence", "field_evidence_terms", "keywords", "bigrams", "trigrams", "structured_phrases", "categories", "short_blurb", "related_work_themes", "seed_papers", "unresolved_cites"]
+    },
+    "notes": {"type": "array", "items": {"type": "string"}}
+  },
+  "required": ["task_id", "generated_at_utc", "source_files", "inputs_used", "extraction", "profile", "notes"]
+}

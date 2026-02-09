@@ -1,6 +1,9 @@
 name: diffpack
 title: Patchset Packager
 description: Prepare patchset deliverable scaffolding for task outputs.
+run: scripts/run.sh
+prompt: prompts/prompt.md
+schema: schemas/schema.json
 keywords:
   - patch
   - diff

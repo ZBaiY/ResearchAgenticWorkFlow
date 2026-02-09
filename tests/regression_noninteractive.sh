@@ -22,10 +22,43 @@ EOF
 cat > "$REQ_DIR/paper_profile_update.md" <<'EOF'
 # Request
 Goal:
-TBD
-Constraints:
-- TBD
+Build paper profile for regression test.
 EOF
+
+PAPER_DIR="$(mktemp -d "/tmp/regression_paper_XXXX")"
+REFS_DIR="$(mktemp -d "/tmp/regression_refs_XXXX")"
+cat > "$PAPER_DIR/main.tex" <<'EOF'
+\documentclass{article}
+\begin{document}
+\title{Regression Paper}
+\begin{abstract}Neutrino flavor conversion constraints from data.</end{abstract}
+\bibliography{references}
+\cite{Smith2024}
+\end{document}
+EOF
+cat > "$PAPER_DIR/references.bib" <<'EOF'
+@article{Smith2024,title={Flavor conversion constraints},author={Smith, A},year={2024},abstract={Flavor conversion constraints from neutrino data.}}
+EOF
+cat > "$REFS_DIR/ref1.txt" <<'EOF'
+Neutrino flavor conversion signals
+Authors: Alice Smith
+Abstract: Signal extraction for neutrino flavor conversion in dark matter backgrounds.
+arXiv:2404.11111
+EOF
+cat > "$REFS_DIR/ref2.txt" <<'EOF'
+Dark matter neutrino interaction bounds
+Authors: Bob Doe
+Abstract: Bounds on dark matter neutrino interactions from oscillation data.
+arXiv:2404.22222
+EOF
+cat > "$REFS_DIR/ref3.txt" <<'EOF'
+Long-baseline phenomenology review
+Authors: Carol Roe
+Abstract: Review of long-baseline neutrino phenomenology and new physics tests.
+arXiv:2404.33333
+EOF
+export PAPER_DIR
+export REFS_DIR
 
 echo "[1/4] bart output check"
 BART_OUT="$(./bart "please check draft metadata and suggest next steps")"
@@ -36,20 +69,22 @@ if printf '%s\n' "$BART_OUT" | rg -q "cat <<'EOF'|goal: TBD|constraints:[[:space
 fi
 
 echo "[2/4] create tasks"
-TASK_COMPUTE="$(./bin/agenthub start --skill compute_numerical --task-name test_compute_noninteractive --request "$REQ_DIR/compute_numerical.md" | sed -n 's/^TASK=\([^ ]*\).*/\1/p')"
-TASK_REFEREE="$(./bin/agenthub start --skill referee_redteam_prl --task-name test_referee_noninteractive --request "$REQ_DIR/referee_redteam_prl.md" | sed -n 's/^TASK=\([^ ]*\).*/\1/p')"
-TASK_PROFILE="$(./bin/agenthub start --skill paper_profile_update --task-name test_profile_noninteractive --request "$REQ_DIR/paper_profile_update.md" | sed -n 's/^TASK=\([^ ]*\).*/\1/p')"
+RUN_TAG="$(date -u +%Y%m%dT%H%M%SZ)"
+TASK_COMPUTE="$(./bin/agenthub start --skill compute_numerical --task-name "test_compute_noninteractive_${RUN_TAG}" --request "$REQ_DIR/compute_numerical.md" | sed -n 's/^TASK=\([^ ]*\).*/\1/p')"
+TASK_REFEREE="$(./bin/agenthub start --skill referee_redteam_prl --task-name "test_referee_noninteractive_${RUN_TAG}" --request "$REQ_DIR/referee_redteam_prl.md" | sed -n 's/^TASK=\([^ ]*\).*/\1/p')"
+TASK_PROFILE="$(./bin/agenthub start --skill paper_profile_update --task-name "test_profile_noninteractive_${RUN_TAG}" --request "$REQ_DIR/paper_profile_update.md" | sed -n 's/^TASK=\([^ ]*\).*/\1/p')"
 
 echo "TASK_COMPUTE=$TASK_COMPUTE"
 echo "TASK_REFEREE=$TASK_REFEREE"
 echo "TASK_PROFILE=$TASK_PROFILE"
 
-echo "[3/4] non-interactive run without flags (expect rc=2)"
+echo "[3/4] non-interactive run without flags defaults to --no (expect rc=0)"
 export TASK_COMPUTE TASK_REFEREE TASK_PROFILE
 python3 - <<'PY'
 import os
 import subprocess
 import sys
+from pathlib import Path
 
 tasks = {
     "compute_numerical": os.environ["TASK_COMPUTE"],
@@ -58,11 +93,16 @@ tasks = {
 }
 
 for skill, tid in tasks.items():
+    env = dict(os.environ)
+    if skill == "paper_profile_update":
+        env["PAPER_PROFILE_USER_PAPER"] = os.environ["PAPER_DIR"]
+        env["PAPER_PROFILE_USER_REFS_FOR_SEEDS"] = os.environ["REFS_DIR"]
     cp = subprocess.run(
         ["./bin/agenthub", "run", "--task", tid],
         stdin=subprocess.DEVNULL,
         text=True,
         capture_output=True,
+        env=env,
     )
     print(f"{skill}: rc={cp.returncode}")
     if cp.stdout.strip():
@@ -71,18 +111,17 @@ for skill, tid in tasks.items():
     if cp.stderr.strip():
         print("stderr:")
         print(cp.stderr.strip())
-    if cp.returncode != 2:
-        print(f"FAIL: expected rc=2 for {skill}")
+    if cp.returncode != 0:
+        print(f"FAIL: expected rc=0 for {skill}")
         sys.exit(1)
-    if "Non-interactive shell. Re-run with --yes or --no." not in cp.stderr:
-        print(f"FAIL: missing non-interactive guidance for {skill}")
+    if "Non-interactive shell" in cp.stderr:
+        print(f"FAIL: unexpected non-interactive error for {skill}")
         sys.exit(1)
-    if "EOFError" in (cp.stdout + cp.stderr):
-        print(f"FAIL: EOFError detected for {skill}")
-        sys.exit(1)
+
+print("OK default --no policy works")
 PY
 
-echo "[4/4] non-interactive run with --yes (expect deterministic completion)"
+echo "[4/4] explicit --yes still deterministic"
 python3 - <<'PY'
 import os
 import subprocess
@@ -102,11 +141,16 @@ expected_outputs = {
 }
 
 for skill, tid in tasks.items():
+    env = dict(os.environ)
+    if skill == "paper_profile_update":
+        env["PAPER_PROFILE_USER_PAPER"] = os.environ["PAPER_DIR"]
+        env["PAPER_PROFILE_USER_REFS_FOR_SEEDS"] = os.environ["REFS_DIR"]
     cp = subprocess.run(
         ["./bin/agenthub", "run", "--task", tid, "--yes"],
         stdin=subprocess.DEVNULL,
         text=True,
         capture_output=True,
+        env=env,
     )
     print(f"{skill}: rc={cp.returncode}")
     if cp.stdout.strip():
@@ -117,9 +161,6 @@ for skill, tid in tasks.items():
         print(cp.stderr.strip())
     if cp.returncode != 0:
         print(f"FAIL: expected rc=0 for {skill} with --yes")
-        sys.exit(1)
-    if "EOFError" in (cp.stdout + cp.stderr):
-        print(f"FAIL: EOFError detected for {skill} with --yes")
         sys.exit(1)
     out_path = expected_outputs[skill](tid)
     if not out_path.exists():

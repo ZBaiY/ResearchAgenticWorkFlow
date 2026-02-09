@@ -1,6 +1,9 @@
 name: paper_profile_update
 title: Paper Profile Update
 description: Build/update a paper metadata profile (keywords, categories, short blurb, themes) from USER paper/notes and stage to GATE on consent.
+run: scripts/run.sh
+prompt: prompts/prompt.md
+schema: schemas/schema.json
 keywords:
   - paper profile
   - metadata
@@ -15,6 +18,7 @@ requires_network: false
 preferred_runner:
   - codex
 risk: medium
+clarification_policy: auto
 confirmations:
   - By default this skill does not write USER and stages to GATE only on consent.
   - Optional write_to_user=true requires explicit WRITE USER confirmation.

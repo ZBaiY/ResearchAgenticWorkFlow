@@ -10,4 +10,4 @@
 Template note: `resources/GET_LATEX_TEMPLATE.md`
 
 Rerun command:
-`bash AGENTS/skills/nature_comm_writer/fetch_resources.sh`
+`bash AGENTS/skills/nature_comm_writer/scripts/fetch_resources.sh`

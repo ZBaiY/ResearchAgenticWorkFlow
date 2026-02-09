@@ -1,6 +1,9 @@
 name: slide_preparation
 title: Slide Preparation
 description: Create talk slide deck skeleton (outline + notes + figure plan) and optionally build pptx.
+run: scripts/run.sh
+prompt: prompts/prompt.md
+schema: schemas/schema.json
 keywords:
   - slides
   - ppt

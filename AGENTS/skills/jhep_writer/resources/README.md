@@ -10,4 +10,4 @@
 Style package note: `resources/GET_THE_STYLE_PACKAGE.md`
 
 Rerun command:
-`bash AGENTS/skills/jhep_writer/fetch_resources.sh`
+`bash AGENTS/skills/jhep_writer/scripts/fetch_resources.sh`

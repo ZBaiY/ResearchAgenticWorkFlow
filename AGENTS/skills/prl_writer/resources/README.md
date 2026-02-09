@@ -14,4 +14,4 @@
 - [failed] `revtex-tds.zip` <- https://ctan.math.illinois.edu/macros/latex/contrib/revtex.zip
 
 If any entry is [failed], rerun:
-`bash AGENTS/skills/prl_writer/fetch_resources.sh`
+`bash AGENTS/skills/prl_writer/scripts/fetch_resources.sh`
