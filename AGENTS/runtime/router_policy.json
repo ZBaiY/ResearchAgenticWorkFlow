@@ -1,0 +1,7 @@
+{
+  "T_low": 15,
+  "T_multi": 35,
+  "T_high": 50,
+  "K_default": 3,
+  "K_max": 8
+}

@@ -1,3 +1,5 @@
-To use agentctl easily:
-- Add ./bin to PATH, e.g.:
-  export PATH="$(pwd)/bin:$PATH"
+Use explicit repo-local commands:
+- `./bart "your request"`
+- `./bin/agenthub suggest "your request"`
+- `./bin/agenthub start ...`
+- `./bin/agenthub run ...`

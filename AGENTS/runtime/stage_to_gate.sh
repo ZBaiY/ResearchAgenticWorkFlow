@@ -86,7 +86,7 @@ EOF2
 fi
 
 RESP_LC="n"
-if approval_confirm "Stage candidate deliverables to GATE/staged/$TASK_ID? (y/N) "; then
+if approval_stage_confirm "Stage candidate deliverables to GATE/staged/$TASK_ID? (y/N) "; then
   RESP_LC="y"
 fi
 

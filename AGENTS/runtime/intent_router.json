@@ -1,0 +1,137 @@
+{
+  "rules": [
+    {
+      "skill": "paper_profile_update",
+      "boost": 65,
+      "boost_all": 25,
+      "penalty": 20,
+      "any_keywords": [
+        "draft",
+        "manuscript",
+        "paper",
+        "meta",
+        "keywords",
+        "categories",
+        "arxiv",
+        "latex",
+        "tex",
+        "profile"
+      ],
+      "all_keywords": [
+        "draft",
+        "meta"
+      ],
+      "negative_keywords": [
+        "symbolic",
+        "mathematica"
+      ]
+    },
+    {
+      "skill": "slide_preparation",
+      "boost": 55,
+      "boost_all": 15,
+      "penalty": 10,
+      "any_keywords": [
+        "slide",
+        "deck",
+        "talk",
+        "seminar",
+        "presentation"
+      ],
+      "all_keywords": [
+        "slide",
+        "talk"
+      ],
+      "negative_keywords": [
+        "compute"
+      ]
+    },
+    {
+      "skill": "literature_scout",
+      "boost": 55,
+      "boost_all": 15,
+      "penalty": 10,
+      "any_keywords": [
+        "literature",
+        "arxiv",
+        "inspire",
+        "references",
+        "papers",
+        "citation",
+        "citations"
+      ],
+      "all_keywords": [
+        "literature",
+        "references"
+      ],
+      "negative_keywords": [
+        "slide"
+      ]
+    },
+    {
+      "skill": "compute_symbolic",
+      "boost": 60,
+      "boost_all": 20,
+      "penalty": 15,
+      "any_keywords": [
+        "symbolic",
+        "mathematica",
+        "derive",
+        "simplify",
+        "integral",
+        "series"
+      ],
+      "all_keywords": [
+        "symbolic",
+        "series"
+      ],
+      "negative_keywords": [
+        "numeric",
+        "python"
+      ]
+    },
+    {
+      "skill": "compute_numerical",
+      "boost": 60,
+      "boost_all": 20,
+      "penalty": 15,
+      "any_keywords": [
+        "numeric",
+        "python",
+        "simulate",
+        "scan",
+        "fit",
+        "plot",
+        "monte carlo"
+      ],
+      "all_keywords": [
+        "python",
+        "numeric"
+      ],
+      "negative_keywords": [
+        "symbolic",
+        "mathematica"
+      ]
+    },
+    {
+      "skill": "referee_redteam_prl",
+      "boost": 55,
+      "boost_all": 20,
+      "penalty": 10,
+      "any_keywords": [
+        "referee",
+        "red team",
+        "audit",
+        "review",
+        "language flow"
+      ],
+      "all_keywords": [
+        "review",
+        "language flow"
+      ],
+      "negative_keywords": [
+        "compute"
+      ]
+    }
+  ]
+}

@@ -176,7 +176,7 @@ EOF2
 
 maybe_stage() {
   local resp_lc="n"
-  if approval_confirm "Stage profile update package to GATE/staged/$TASK_ID? (y/N) "; then
+  if approval_stage_confirm "Stage profile update package to GATE/staged/$TASK_ID? (y/N) "; then
     resp_lc="y"
   fi
   if [[ "$resp_lc" != "y" ]]; then

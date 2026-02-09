@@ -9,6 +9,14 @@ approval_mode() {
   esac
 }
 
+approval_stage_mode() {
+  local mode="${AGENTHUB_STAGE_APPROVAL:-$(approval_mode)}"
+  case "$mode" in
+    yes|no|prompt) printf '%s\n' "$mode" ;;
+    *) printf '%s\n' "$(approval_mode)" ;;
+  esac
+}
+
 approval_interactive() {
   if [[ "${AGENTHUB_INTERACTIVE:-}" == "1" ]]; then
     printf '1\n'
@@ -30,6 +38,33 @@ approval_confirm() {
   local prompt="${1:-Proceed? (y/N) }"
   local mode interactive ans
   mode="$(approval_mode)"
+  interactive="$(approval_interactive)"
+
+  if [[ "$mode" == "yes" ]]; then
+    return 0
+  fi
+  if [[ "$mode" == "no" ]]; then
+    return 1
+  fi
+  if [[ "$interactive" != "1" ]]; then
+    return 1
+  fi
+
+  ans=""
+  if [[ -r /dev/tty ]]; then
+    if { printf "%s" "$prompt" > /dev/tty && IFS= read -r ans < /dev/tty; } 2>/dev/null; then
+      :
+    fi
+  fi
+  ans="$(printf '%s' "$ans" | tr '[:upper:]' '[:lower:]')"
+  [[ "$ans" == "y" || "$ans" == "yes" ]]
+}
+
+approval_stage_confirm() {
+  # usage: approval_stage_confirm "<prompt>"
+  local prompt="${1:-Proceed? (y/N) }"
+  local mode interactive ans
+  mode="$(approval_stage_mode)"
   interactive="$(approval_interactive)"
 
   if [[ "$mode" == "yes" ]]; then

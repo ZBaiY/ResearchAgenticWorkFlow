@@ -330,7 +330,7 @@ def write_request(task_dir: Path, args: argparse.Namespace) -> str:
 
 
 def validate_task_name(name: str) -> bool:
-    return bool(re.fullmatch(r"[a-z0-9_]+", name))
+    return bool(re.fullmatch(r"[A-Za-z0-9_]+", name))
 
 
 def default_task_name(skill: str) -> str:
@@ -362,7 +362,7 @@ def init_task_dir(root: Path, task_id: str) -> Path:
 def cmd_start(root: Path, args: argparse.Namespace) -> int:
     if args.task_name:
         if not validate_task_name(args.task_name):
-            print("ERROR=Invalid --task-name. Use only lowercase letters, digits, and underscores.", file=sys.stderr)
+            print("ERROR=Invalid --task-name. Use only letters, digits, and underscores.", file=sys.stderr)
             return 2
         task_id = args.task_name
         if (tasks_dir(root) / task_id).exists():

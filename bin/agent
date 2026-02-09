@@ -2,7 +2,6 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 AGENTHUB="$ROOT/bin/agenthub"
 INDEX_FILE="$ROOT/AGENTS/runtime/skills_index.json"
 
@@ -79,12 +78,14 @@ echo "EXAMPLE=./bin/ask \"rewrite Floquet section for PRL clarity\""
 echo "REPO_ROOT=$ROOT"
 
 if [[ "$NO_LAUNCH" -eq 1 ]]; then
-  echo "PATH_INJECTED=\"$REPO_ROOT\""
   echo "LAUNCH=skipped"
   exit 0
 fi
 
+# Make repo-local executables (e.g., ./bart) available as bare commands
+# only inside the spawned agent client session.
+REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 export PATH="$REPO_ROOT:$PATH"
-echo "PATH_INJECTED=\"$REPO_ROOT\""
+
 echo "LAUNCH=exec $CLIENT"
 exec "$CLIENT"

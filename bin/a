@@ -1,29 +1,486 @@
-#!/usr/bin/env bash
-set -euo pipefail
+#!/usr/bin/env python3
+import argparse
+import json
+import os
+import re
+import shlex
+import subprocess
+import sys
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any, Dict, List
 
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
-usage() {
-  cat <<'USAGE'
-Usage:
-  ./bart "<free text request>"
-  ./bin/a "<free text request>"
-  ./bin/a --help
+def repo_root() -> Path:
+    return Path(__file__).resolve().parent.parent
 
-Runs repo-local skill suggestion for a natural-language request.
-USAGE
-}
 
-if [[ $# -eq 0 ]]; then
-  usage
-  exit 2
-fi
+def utc_compact() -> str:
+    return datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
 
-case "${1:-}" in
-  --help|-h)
-    usage
-    exit 0
-    ;;
-esac
 
-exec "$ROOT/bin/ask" "$*"
+def run_checked(cmd: List[str], cwd: Path) -> subprocess.CompletedProcess:
+    cp = subprocess.run(cmd, cwd=str(cwd), text=True, capture_output=True)
+    if cp.returncode != 0:
+        tail = (cp.stderr or cp.stdout or "").strip().splitlines()
+        msg = tail[-1] if tail else f"command failed: {' '.join(cmd)}"
+        raise RuntimeError(msg)
+    return cp
+
+
+def load_json(path: Path) -> Dict[str, Any]:
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def compute_base_score(skill: Dict[str, Any], query: str) -> float:
+    qtokens = re.findall(r"[a-z0-9_+-]+", query.lower())
+    fields = " ".join(
+        [
+            skill.get("name", ""),
+            skill.get("title", ""),
+            skill.get("description", ""),
+            " ".join(skill.get("keywords", []) or []),
+        ]
+    ).lower()
+    score = 0.0
+    for t in qtokens:
+        if t in fields:
+            score += 1.0
+    name = skill.get("name", "").lower()
+    if name and name in query.lower():
+        score += 3.0
+    return score
+
+
+def apply_router_boosts(entries: Dict[str, Dict[str, Any]], query: str, router_cfg: Dict[str, Any]) -> None:
+    q = query.lower()
+    for rule in router_cfg.get("rules", []):
+        skill = rule.get("skill", "")
+        if skill not in entries:
+            continue
+        ent = entries[skill]
+        any_keywords = [x.lower() for x in rule.get("any_keywords", []) if isinstance(x, str)]
+        all_keywords = [x.lower() for x in rule.get("all_keywords", []) if isinstance(x, str)]
+        negative_keywords = [x.lower() for x in rule.get("negative_keywords", []) if isinstance(x, str)]
+        boost = float(rule.get("boost", 0.0))
+        boost_all = float(rule.get("boost_all", boost))
+        penalty = float(rule.get("penalty", boost))
+
+        any_hits = [k for k in any_keywords if k in q]
+        all_hits = [k for k in all_keywords if k in q]
+        neg_hits = [k for k in negative_keywords if k in q]
+
+        if any_hits:
+            ent["score"] += boost
+            ent["boost_reasons"].extend(any_hits)
+        if all_keywords and len(all_hits) == len(all_keywords):
+            ent["score"] += boost_all
+            ent["boost_reasons"].extend(all_hits)
+        if neg_hits:
+            ent["score"] -= penalty
+            ent["boost_reasons"].extend([f"!{k}" for k in neg_hits])
+
+
+def build_ranking(root: Path, query: str) -> List[Dict[str, Any]]:
+    idx_path = root / "AGENTS" / "runtime" / "skills_index.json"
+    if not idx_path.exists():
+        raise RuntimeError("skills index missing: AGENTS/runtime/skills_index.json (run ./bin/agenthub index)")
+    idx = load_json(idx_path)
+    router_cfg = load_json(root / "AGENTS" / "runtime" / "intent_router.json")
+    skills = idx.get("skills", [])
+
+    entries: Dict[str, Dict[str, Any]] = {}
+    for s in skills:
+        name = s.get("name", "")
+        if not name:
+            continue
+        base = compute_base_score(s, query)
+        entries[name] = {
+            "name": name,
+            "description": (s.get("description", "") or "").strip(),
+            "base_score": base,
+            "score": base,
+            "boost_reasons": [],
+        }
+
+    apply_router_boosts(entries, query, router_cfg)
+    ranked = list(entries.values())
+    ranked.sort(key=lambda x: (-x["score"], x["name"]))
+    return ranked
+
+
+def decide_candidates(ranked: List[Dict[str, Any]], policy: Dict[str, Any], k_override: int | None) -> Dict[str, Any]:
+    t_low = float(policy.get("T_low", 15))
+    t_multi = float(policy.get("T_multi", 35))
+    t_high = float(policy.get("T_high", 50))
+    k_default = int(policy.get("K_default", 3))
+    k_max = int(policy.get("K_max", 8))
+
+    if not ranked:
+        return {
+            "recommended": "",
+            "top1_score": 0.0,
+            "mode": "LOWCONF",
+            "warn_no_match": True,
+            "candidates": [],
+            "truncated": False,
+        }
+
+    best = ranked[0]
+    mode = "NORMAL"
+    warn_no_match = False
+    if best["score"] < t_low:
+        mode = "LOWCONF"
+        warn_no_match = True
+    elif best["score"] >= t_high:
+        mode = "HIGHCONF"
+
+    must_show = [r for r in ranked if r["score"] >= t_multi]
+    truncated = False
+    if must_show:
+        candidates = must_show[:k_max]
+        truncated = len(must_show) > k_max
+    else:
+        k = k_override if k_override is not None else k_default
+        k = max(1, min(k, k_max))
+        candidates = ranked[:k]
+
+    return {
+        "recommended": best["name"],
+        "top1_score": best["score"],
+        "mode": mode,
+        "warn_no_match": warn_no_match,
+        "candidates": candidates,
+        "truncated": truncated,
+    }
+
+
+def parse_task_name(out: str) -> str:
+    for line in out.splitlines():
+        if line.startswith("TASK_NAME="):
+            return line.split("=", 1)[1].strip()
+    return ""
+
+
+def parse_started_task(out: str) -> str:
+    for line in out.splitlines():
+        if line.startswith("TASK="):
+            return line.split("=", 1)[1].split(" ", 1)[0].strip()
+    return ""
+
+
+def parse_run_artifacts(out: str) -> Dict[str, str]:
+    artifacts = {
+        "report": "NONE",
+        "result": "NONE",
+        "patch": "NONE",
+        "staged_dir": "NONE",
+    }
+    for line in out.splitlines():
+        t = line.strip()
+        if t.startswith("- Report:"):
+            artifacts["report"] = t.split(":", 1)[1].strip() or "NONE"
+        elif t.startswith("- Result:"):
+            artifacts["result"] = t.split(":", 1)[1].strip() or "NONE"
+        elif t.startswith("- Patch:"):
+            artifacts["patch"] = t.split(":", 1)[1].strip() or "NONE"
+        elif t.startswith("- Staged Dir:"):
+            artifacts["staged_dir"] = t.split(":", 1)[1].strip() or "NONE"
+    return artifacts
+
+
+def collect_canonical_inputs(root: Path) -> List[str]:
+    out: List[str] = []
+    paper = root / "USER" / "paper"
+    notes = root / "USER" / "notes"
+
+    if paper.exists():
+        for p in sorted(paper.rglob("*.tex")):
+            if p.is_file():
+                out.append(str(p.relative_to(root)))
+    if notes.exists():
+        for p in sorted(notes.rglob("*.md")):
+            if p.is_file():
+                out.append(str(p.relative_to(root)))
+    return out
+
+
+def write_request_template(root: Path, task_name: str, query: str, full_agent: bool) -> str:
+    req_dir = root / "AGENTS" / "requests"
+    req_dir.mkdir(parents=True, exist_ok=True)
+    req_path = req_dir / f"{task_name}.md"
+
+    if full_agent:
+        inputs = collect_canonical_inputs(root)
+        if inputs:
+            inputs_block = "\n".join(f"- {p}" for p in inputs)
+        else:
+            inputs_block = "- USER/paper/**/*.tex (none found)\n- USER/notes/**/*.md (none found)"
+        content = (
+            "# Request\n\n"
+            "goal:\n"
+            f"{query}\n\n"
+            "constraints:\n"
+            "- Do not modify USER; stage only to GATE; promotion is manual\n\n"
+            "inputs:\n"
+            f"{inputs_block}\n"
+        )
+    else:
+        content = (
+            "# Request\n\n"
+            "Goal:\n"
+            f"{query}\n\n"
+            "Background:\n"
+            "- Auto-generated from bart selection. Refine as needed.\n\n"
+            "Constraints:\n"
+            "- Do not modify USER/ unless explicitly requested.\n\n"
+            "Deliverables:\n"
+            "- A report under AGENTS/tasks/<task_id>/review/.\n"
+        )
+
+    req_path.write_text(content, encoding="utf-8")
+    return str(req_path.relative_to(root))
+
+
+def print_suggestions(query: str, decision: Dict[str, Any]) -> None:
+    best = decision["recommended"]
+    top1_score = decision["top1_score"]
+    mode = decision["mode"]
+    candidates = decision["candidates"]
+
+    print(f"RECOMMENDED_SKILL={best}")
+    print(f"TOP1_SCORE={top1_score:.1f}")
+    print(f"MODE={mode}")
+    if candidates:
+        top1 = candidates[0]
+        reason = ",".join(top1.get("boost_reasons", [])) or "none"
+        print(f"BOOST={top1['name']} reason={reason}")
+    print("CANDIDATES=")
+    for i, c in enumerate(candidates, start=1):
+        reason = ",".join(c.get("boost_reasons", []))
+        if reason:
+            print(f"  {i}) {c['name']} score={c['score']:.1f} boost={reason}")
+        else:
+            print(f"  {i}) {c['name']} score={c['score']:.1f}")
+
+    if decision.get("truncated"):
+        print("WARN=TRUNCATED")
+    if decision.get("warn_no_match"):
+        print("WARN=NO_GOOD_SKILL_MATCH (barefoot)")
+        print("HINT=use --skill <name> or rephrase request with keywords (draft/meta/compute/etc)")
+    print("PICK_REQUIRED=1")
+    escaped = query.replace('"', '\\"')
+    print(f'NEXT_1=./bart "{escaped}" --pick 1 --start')
+    print(f'NEXT_2=./bart "{escaped}" --skill {best} --start')
+
+
+def run_full_agent(root: Path, query: str, ranked: List[Dict[str, Any]], policy: Dict[str, Any], decision: Dict[str, Any], stage_gate: bool) -> int:
+    if not ranked:
+        print("MODE=FULL_AGENT")
+        print(f"REQUEST={json.dumps(query)}")
+        print("RUN=fail")
+        print("ERROR=NO_SKILLS_AVAILABLE")
+        return 2
+
+    selected = decision.get("recommended") or ranked[0]["name"]
+    top1_score = float(decision.get("top1_score", ranked[0]["score"]))
+    t_low = float(policy.get("T_low", 15))
+
+    task_name_out = run_checked([str(root / "bin" / "agenthub"), "task-name", "--skill", selected], cwd=root).stdout
+    task_name = parse_task_name(task_name_out) or f"{selected}_{utc_compact()}"
+
+    req_rel = write_request_template(root, task_name, query, full_agent=True)
+    start_cmd = [
+        str(root / "bin" / "agenthub"),
+        "start",
+        "--skill",
+        selected,
+        "--task-name",
+        task_name,
+        "--request",
+        req_rel,
+    ]
+
+    run_cmd = [str(root / "bin" / "agenthub"), "run", "--task", task_name, "--yes"]
+    run_env = os.environ.copy()
+    run_env["AGENTHUB_STAGE_APPROVAL"] = "yes" if stage_gate else "no"
+
+    started_task = task_name
+    start_cp = subprocess.run(start_cmd, cwd=str(root), text=True, capture_output=True)
+    if start_cp.returncode == 0:
+        started_task = parse_started_task(start_cp.stdout) or task_name
+        run_cmd = [str(root / "bin" / "agenthub"), "run", "--task", started_task, "--yes"]
+
+    run_cp = subprocess.CompletedProcess(run_cmd, returncode=1, stdout="", stderr="")
+    artifacts = {
+        "report": "NONE",
+        "result": "NONE",
+        "patch": "NONE",
+        "staged_dir": "NONE",
+    }
+
+    if start_cp.returncode == 0:
+        run_cp = subprocess.run(
+            run_cmd,
+            cwd=str(root),
+            text=True,
+            capture_output=True,
+            stdin=subprocess.DEVNULL,
+            env=run_env,
+        )
+        artifacts = parse_run_artifacts(run_cp.stdout)
+        if run_cp.returncode != 0 and artifacts["report"] == "NONE":
+            for line in run_cp.stderr.splitlines():
+                if line.startswith("SEE="):
+                    artifacts["report"] = line.split("=", 1)[1].strip()
+                    break
+
+    run_ok = start_cp.returncode == 0 and run_cp.returncode == 0
+    outputs = artifacts["result"]
+    if outputs == "NONE":
+        outputs = artifacts["patch"]
+
+    print("MODE=FULL_AGENT")
+    print(f"REQUEST={json.dumps(query)}")
+    print(f"CHOSEN_SKILL={selected}")
+    print(f"SCORE={top1_score:.1f}")
+    if top1_score < t_low:
+        print("WARN=NO_GOOD_SKILL_MATCH (barefoot)")
+        print("RISK=HIGH")
+    print(f"TASK={started_task}")
+    print(f"REQUEST_FILE={req_rel}")
+    print(f"RUN={'ok' if run_ok else 'fail'}")
+    print(f"REPORT={artifacts['report']}")
+    print(f"OUTPUTS={outputs}")
+    print(f"STAGED_TO_GATE={'yes' if artifacts['staged_dir'] != 'NONE' else 'no'}")
+
+    if run_ok:
+        return 0
+    if start_cp.returncode != 0:
+        msg = (start_cp.stderr or start_cp.stdout or "start failed").strip().splitlines()
+        if msg:
+            print(f"ERROR={msg[-1]}", file=sys.stderr)
+    else:
+        msg = (run_cp.stderr or run_cp.stdout or "run failed").strip().splitlines()
+        if msg:
+            print(f"ERROR={msg[-1]}", file=sys.stderr)
+    return 2
+
+
+def main() -> int:
+    root = repo_root()
+    parser = argparse.ArgumentParser(
+        prog="bart",
+        description="Deterministic skill router. Suggest-only by default; explicit pick/skill required to start.",
+    )
+    parser.add_argument("request", nargs="?", help="Free text request.")
+    parser.add_argument("--pick", type=int, default=None, help="Pick index from displayed candidates.")
+    parser.add_argument("--skill", default=None, help="Explicit skill name.")
+    parser.add_argument("--start", action="store_true", help="Start task for selected skill.")
+    parser.add_argument("--run", action="store_true", help="Run task after start (requires --start).")
+    parser.add_argument("--yes", action="store_true", help="Forward --yes to agenthub run.")
+    parser.add_argument("--no", action="store_true", help="Forward --no to agenthub run.")
+    parser.add_argument("--k", type=int, default=None, help="Candidate count override when no must-show set.")
+    parser.add_argument("--full-agent", action="store_true", help="Autopilot mode: route, start, and run automatically.")
+    parser.add_argument("--stage-gate", action="store_true", help="With --full-agent, allow auto-staging to GATE.")
+    args = parser.parse_args()
+
+    if not args.request:
+        parser.print_usage(sys.stderr)
+        return 2
+
+    if args.full_agent:
+        if args.pick is not None or args.skill or args.start or args.run or args.yes or args.no:
+            print("ERROR=--full-agent cannot be combined with --pick/--skill/--start/--run/--yes/--no.", file=sys.stderr)
+            return 2
+    else:
+        if args.stage_gate:
+            print("ERROR=--stage-gate requires --full-agent.", file=sys.stderr)
+            return 2
+        if args.pick is not None and args.skill:
+            print("ERROR=Use only one of --pick or --skill.", file=sys.stderr)
+            return 2
+        if args.start and not (args.pick is not None or args.skill):
+            print("ERROR=--start requires --pick N or --skill <name>.", file=sys.stderr)
+            return 2
+        if args.run and not args.start:
+            print("ERROR=--run requires --start.", file=sys.stderr)
+            return 2
+        if args.yes and args.no:
+            print("ERROR=Use only one of --yes or --no.", file=sys.stderr)
+            return 2
+        if (args.yes or args.no) and not args.run:
+            print("ERROR=--yes/--no require --run.", file=sys.stderr)
+            return 2
+
+    if args.k is not None and args.k < 1:
+        print("ERROR=--k must be a positive integer.", file=sys.stderr)
+        return 2
+
+    query = args.request.strip()
+    try:
+        ranked = build_ranking(root, query)
+        policy = load_json(root / "AGENTS" / "runtime" / "router_policy.json")
+        decision = decide_candidates(ranked, policy, args.k)
+
+        if args.full_agent:
+            return run_full_agent(root, query, ranked, policy, decision, stage_gate=args.stage_gate)
+
+        if args.pick is None and args.skill is None:
+            print_suggestions(query, decision)
+            return 0
+
+        selected = args.skill
+        candidates = decision["candidates"]
+        if selected is None:
+            if args.pick < 1 or args.pick > len(candidates):
+                print(f"ERROR=--pick out of range (1..{len(candidates)}).", file=sys.stderr)
+                return 2
+            selected = candidates[args.pick - 1]["name"]
+
+        known = {r["name"] for r in ranked}
+        if selected not in known:
+            print(f"ERROR=Unknown skill: {selected}", file=sys.stderr)
+            return 2
+
+        task_name_out = run_checked([str(root / "bin" / "agenthub"), "task-name", "--skill", selected], cwd=root).stdout
+        task_name = parse_task_name(task_name_out)
+        if not task_name:
+            raise RuntimeError("unable to generate task name")
+
+        req_rel = write_request_template(root, task_name, query, full_agent=False)
+
+        print(f"SELECTED_SKILL={selected}")
+        print(f"TASK_NAME={task_name}")
+        print(f"REQUEST_TEMPLATE={req_rel}")
+
+        start_cmd = [str(root / "bin" / "agenthub"), "start", "--skill", selected, "--task-name", task_name, "--request", req_rel]
+        run_cmd = [str(root / "bin" / "agenthub"), "run", "--task", task_name]
+        if args.yes:
+            run_cmd.append("--yes")
+        if args.no:
+            run_cmd.append("--no")
+
+        if not args.start:
+            print(f"NEXT_1={' '.join(shlex.quote(x) for x in start_cmd).replace(str(root) + '/', './')}")
+            print(f"NEXT_2={' '.join(shlex.quote(x) for x in run_cmd).replace(str(root) + '/', './')}")
+            return 0
+
+        start_out = run_checked(start_cmd, cwd=root).stdout.strip()
+        if start_out:
+            print(start_out)
+        started_task = parse_started_task(start_out) or task_name
+        run_cmd = [str(root / "bin" / "agenthub"), "run", "--task", started_task] + run_cmd[4:]
+        print(f"RUN_COMMAND={' '.join(shlex.quote(x) for x in run_cmd).replace(str(root) + '/', './')}")
+        if args.run:
+            cp = subprocess.run(run_cmd, cwd=str(root), text=True)
+            return cp.returncode
+        return 0
+    except Exception as err:
+        msg = str(err).splitlines()[0] if str(err).strip() else err.__class__.__name__
+        print(f"ERROR={msg}", file=sys.stderr)
+        return 2
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
