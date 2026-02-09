@@ -1,0 +1,80 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Minimal dispatcher stub.
+# You can extend this to call Codex CLI / Claude Code / Gemini CLI.
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+TASKS_DIR="$ROOT/AGENTS/tasks"
+SKILLS_DIR="$ROOT/AGENTS/skills"
+
+usage() {
+  cat <<'USAGE'
+Usage:
+  agentctl new <task_name>
+  agentctl run <skill_name> --task <task_id>
+  agentctl ls
+USAGE
+}
+
+new_task() {
+  local name="${1:-task}"
+  local id
+  id="$(date -u +"%Y%m%dT%H%M%SZ")_${name//[^a-zA-Z0-9._-]/_}"
+  local tdir="$TASKS_DIR/$id"
+  mkdir -p "$tdir"/{work,outputs/fig,outputs/tables,logs,review,deliverable}
+
+  cat > "$tdir/request.md" <<EOF2
+# request.md
+# User request for task: $name
+# Fill in the actual request here.
+EOF2
+
+  cat > "$tdir/plan.md" <<'EOF2'
+# plan.md
+# Agent plan (to be filled by agent)
+EOF2
+
+  echo "$id"
+}
+
+run_skill() {
+  local skill="${1:-}"
+  shift || true
+
+  local task_id=""
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --task) task_id="${2:-}"; shift 2 ;;
+      *) echo "Unknown arg: $1" >&2; exit 2 ;;
+    esac
+  done
+
+  [[ -n "$skill" ]] || { echo "Missing <skill_name>"; usage; exit 2; }
+  [[ -n "$task_id" ]] || { echo "Missing --task <task_id>"; usage; exit 2; }
+
+  local sdir="$SKILLS_DIR/$skill"
+  local tdir="$TASKS_DIR/$task_id"
+  [[ -d "$sdir" ]] || { echo "Skill not found: $skill"; exit 2; }
+  [[ -d "$tdir" ]] || { echo "Task not found: $task_id"; exit 2; }
+
+  # Convention: each skill has run.sh (optional) and prompt.md (required)
+  if [[ -f "$sdir/run.sh" ]]; then
+    bash "$sdir/run.sh" "$ROOT" "$task_id"
+  else
+    echo "No run.sh for skill '$skill'. See: $sdir"
+    exit 2
+  fi
+}
+
+list_tasks() {
+  ls -1 "$TASKS_DIR" 2>/dev/null || true
+}
+
+cmd="${1:-}"
+case "$cmd" in
+  new) shift; new_task "${1:-task}" ;;
+  run) shift; run_skill "${1:-}" "${@:2}" ;;
+  ls) list_tasks ;;
+  *) usage; exit 2 ;;
+esac

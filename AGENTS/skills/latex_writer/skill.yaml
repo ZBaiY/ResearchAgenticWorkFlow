@@ -1,0 +1,17 @@
+name: latex_writer
+title: Generic LaTeX Writer
+description: Shadow-edit LaTeX content and produce patch-oriented deliverables.
+keywords:
+  - latex
+  - manuscript
+  - writing
+  - editing
+outputs:
+  - review: "AGENTS/tasks/<task_id>/review/latex_writer_report.md"
+  - patch: "AGENTS/tasks/<task_id>/deliverable/patchset/patch.diff"
+requires_network: false
+preferred_runner:
+  - codex
+risk: medium
+confirmations:
+  - Applies edits only in AGENTS shadow tree.

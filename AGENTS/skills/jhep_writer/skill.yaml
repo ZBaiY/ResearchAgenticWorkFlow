@@ -1,0 +1,17 @@
+name: jhep_writer
+title: JHEP Style Writer
+description: Prepare JHEP-oriented manuscript edits and frontmatter checks.
+keywords:
+  - jhep
+  - manuscript
+  - frontmatter
+  - latex
+outputs:
+  - review: "AGENTS/tasks/<task_id>/review/jhep_writer_report.md"
+  - patch: "AGENTS/tasks/<task_id>/deliverable/patchset/patch.diff"
+requires_network: false
+preferred_runner:
+  - codex
+risk: medium
+confirmations:
+  - Keeps edits patch-oriented and shadow-only.

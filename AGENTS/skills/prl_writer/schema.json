@@ -1,0 +1,102 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "latex_writer files manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "task_id",
+    "skill",
+    "input_paper_root",
+    "shadow_root",
+    "edited_files",
+    "build_checks",
+    "notes"
+  ],
+  "properties": {
+    "task_id": {
+      "type": "string"
+    },
+    "skill": {
+      "type": "string"
+    },
+    "input_paper_root": {
+      "type": "string"
+    },
+    "shadow_root": {
+      "type": "string"
+    },
+    "edited_files": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "path",
+          "change_type",
+          "purpose",
+          "risk_level"
+        ],
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "change_type": {
+            "type": "string",
+            "enum": [
+              "edit",
+              "add",
+              "delete",
+              "rename"
+            ]
+          },
+          "purpose": {
+            "type": "string"
+          },
+          "risk_level": {
+            "type": "string",
+            "enum": [
+              "low",
+              "medium",
+              "high"
+            ]
+          }
+        }
+      }
+    },
+    "build_checks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "name",
+          "cmd",
+          "status",
+          "log_path"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "cmd": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "skipped",
+              "ok",
+              "fail"
+            ]
+          },
+          "log_path": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "notes": {
+      "type": "string"
+    }
+  }
+}

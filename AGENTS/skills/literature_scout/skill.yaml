@@ -1,0 +1,17 @@
+name: literature_scout
+title: Literature Scout
+description: Build reading lists and bibliography seeds for a research task.
+keywords:
+  - literature
+  - papers
+  - bibliography
+  - references
+outputs:
+  - review: "AGENTS/tasks/<task_id>/review/reading_list.md"
+  - patch: "AGENTS/tasks/<task_id>/deliverable/patchset/patch.diff"
+requires_network: true
+preferred_runner:
+  - codex
+risk: low
+confirmations:
+  - May rely on external search tools if available.

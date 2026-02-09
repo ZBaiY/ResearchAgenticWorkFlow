@@ -1,0 +1,41 @@
+{
+  "backend": "python",
+  "computation": "linear_model",
+  "inputs": {
+    "x": [
+      0,
+      1,
+      2,
+      3,
+      4
+    ]
+  },
+  "params": {
+    "a": 2.0,
+    "b": 1.0
+  },
+  "results": {
+    "y": [
+      1.0,
+      3.0,
+      5.0,
+      7.0,
+      9.0
+    ],
+    "mean_y": 5.0
+  },
+  "sanity_checks": [
+    {
+      "name": "result_vector_length_matches_input",
+      "passed": true
+    },
+    {
+      "name": "result_values_are_finite",
+      "passed": true
+    },
+    {
+      "name": "mean_value_within_expected_range",
+      "passed": true
+    }
+  ]
+}

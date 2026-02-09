@@ -1,0 +1,17 @@
+name: prd_writer
+title: Product Requirements Writer
+description: Generate structured PRD artifacts from task request and context files.
+keywords:
+  - prd
+  - requirements
+  - acceptance criteria
+  - planning
+outputs:
+  - review: "AGENTS/tasks/<task_id>/review/prd_writer_report.md"
+  - patch: "AGENTS/tasks/<task_id>/deliverable/patchset/patch.diff"
+requires_network: false
+preferred_runner:
+  - codex
+risk: low
+confirmations:
+  - Produces planning docs only; does not execute product changes.

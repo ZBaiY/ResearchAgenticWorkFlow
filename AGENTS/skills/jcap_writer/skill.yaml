@@ -1,0 +1,17 @@
+name: jcap_writer
+title: JCAP Style Writer
+description: Prepare JCAP-oriented manuscript edits and structure checks.
+keywords:
+  - jcap
+  - manuscript
+  - style
+  - latex
+outputs:
+  - review: "AGENTS/tasks/<task_id>/review/jcap_writer_report.md"
+  - patch: "AGENTS/tasks/<task_id>/deliverable/patchset/patch.diff"
+requires_network: false
+preferred_runner:
+  - codex
+risk: medium
+confirmations:
+  - Uses shadow tree only and never writes USER/GATE.

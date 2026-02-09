@@ -1,0 +1,326 @@
+{
+  "generated_at_utc": "2026-02-09T07:57:04Z",
+  "repo_root": "/Users/zhaoyub/Desktop/PHYSICS/AgenticWorkflow",
+  "skills": [
+    {
+      "name": "compute",
+      "path": "AGENTS/skills/compute",
+      "title": "Compute Job Scaffold",
+      "description": "Generate reproducible compute jobs and runtime outputs for a task.",
+      "keywords": [
+        "compute",
+        "simulation",
+        "reproducibility",
+        "hashes"
+      ],
+      "outputs": [
+        {
+          "review": "AGENTS/tasks/<task_id>/review/compute_skill_report.md"
+        },
+        {
+          "patch": "AGENTS/tasks/<task_id>/deliverable/patchset/patch.diff"
+        }
+      ],
+      "requires_network": false,
+      "preferred_runner": [
+        "codex"
+      ],
+      "risk": "medium",
+      "confirmations": [
+        "Running compute jobs may consume CPU and create outputs under AGENTS/tasks."
+      ],
+      "has_run_sh": true,
+      "has_prompt_md": true,
+      "degraded": false,
+      "warnings": []
+    },
+    {
+      "name": "diffpack",
+      "path": "AGENTS/skills/diffpack",
+      "title": "Patchset Packager",
+      "description": "Prepare patchset deliverable scaffolding for task outputs.",
+      "keywords": [
+        "patch",
+        "diff",
+        "deliverable"
+      ],
+      "outputs": [
+        {
+          "review": "AGENTS/tasks/<task_id>/review/..."
+        },
+        {
+          "patch": "AGENTS/tasks/<task_id>/deliverable/patchset/patch.diff"
+        }
+      ],
+      "requires_network": false,
+      "preferred_runner": [
+        "codex"
+      ],
+      "risk": "low",
+      "confirmations": [
+        "Generates patch packaging artifacts only; no USER/GATE writes."
+      ],
+      "has_run_sh": true,
+      "has_prompt_md": true,
+      "degraded": false,
+      "warnings": []
+    },
+    {
+      "name": "jcap_writer",
+      "path": "AGENTS/skills/jcap_writer",
+      "title": "JCAP Style Writer",
+      "description": "Prepare JCAP-oriented manuscript edits and structure checks.",
+      "keywords": [
+        "jcap",
+        "manuscript",
+        "style",
+        "latex"
+      ],
+      "outputs": [
+        {
+          "review": "AGENTS/tasks/<task_id>/review/jcap_writer_report.md"
+        },
+        {
+          "patch": "AGENTS/tasks/<task_id>/deliverable/patchset/patch.diff"
+        }
+      ],
+      "requires_network": false,
+      "preferred_runner": [
+        "codex"
+      ],
+      "risk": "medium",
+      "confirmations": [
+        "Uses shadow tree only and never writes USER/GATE."
+      ],
+      "has_run_sh": true,
+      "has_prompt_md": true,
+      "degraded": false,
+      "warnings": []
+    },
+    {
+      "name": "jhep_writer",
+      "path": "AGENTS/skills/jhep_writer",
+      "title": "JHEP Style Writer",
+      "description": "Prepare JHEP-oriented manuscript edits and frontmatter checks.",
+      "keywords": [
+        "jhep",
+        "manuscript",
+        "frontmatter",
+        "latex"
+      ],
+      "outputs": [
+        {
+          "review": "AGENTS/tasks/<task_id>/review/jhep_writer_report.md"
+        },
+        {
+          "patch": "AGENTS/tasks/<task_id>/deliverable/patchset/patch.diff"
+        }
+      ],
+      "requires_network": false,
+      "preferred_runner": [
+        "codex"
+      ],
+      "risk": "medium",
+      "confirmations": [
+        "Keeps edits patch-oriented and shadow-only."
+      ],
+      "has_run_sh": true,
+      "has_prompt_md": true,
+      "degraded": false,
+      "warnings": []
+    },
+    {
+      "name": "latex_writer",
+      "path": "AGENTS/skills/latex_writer",
+      "title": "Generic LaTeX Writer",
+      "description": "Shadow-edit LaTeX content and produce patch-oriented deliverables.",
+      "keywords": [
+        "latex",
+        "manuscript",
+        "writing",
+        "editing"
+      ],
+      "outputs": [
+        {
+          "review": "AGENTS/tasks/<task_id>/review/latex_writer_report.md"
+        },
+        {
+          "patch": "AGENTS/tasks/<task_id>/deliverable/patchset/patch.diff"
+        }
+      ],
+      "requires_network": false,
+      "preferred_runner": [
+        "codex"
+      ],
+      "risk": "medium",
+      "confirmations": [
+        "Applies edits only in AGENTS shadow tree."
+      ],
+      "has_run_sh": true,
+      "has_prompt_md": true,
+      "degraded": false,
+      "warnings": []
+    },
+    {
+      "name": "literature_scout",
+      "path": "AGENTS/skills/literature_scout",
+      "title": "Literature Scout",
+      "description": "Build reading lists and bibliography seeds for a research task.",
+      "keywords": [
+        "literature",
+        "papers",
+        "bibliography",
+        "references"
+      ],
+      "outputs": [
+        {
+          "review": "AGENTS/tasks/<task_id>/review/reading_list.md"
+        },
+        {
+          "patch": "AGENTS/tasks/<task_id>/deliverable/patchset/patch.diff"
+        }
+      ],
+      "requires_network": true,
+      "preferred_runner": [
+        "codex"
+      ],
+      "risk": "low",
+      "confirmations": [
+        "May rely on external search tools if available."
+      ],
+      "has_run_sh": true,
+      "has_prompt_md": true,
+      "degraded": false,
+      "warnings": []
+    },
+    {
+      "name": "nature_comm_writer",
+      "path": "AGENTS/skills/nature_comm_writer",
+      "title": "Nature Communications Writer",
+      "description": "Improve broad-audience narrative clarity and figure-led storytelling.",
+      "keywords": [
+        "nature",
+        "narrative",
+        "accessibility",
+        "manuscript"
+      ],
+      "outputs": [
+        {
+          "review": "AGENTS/tasks/<task_id>/review/nature_comm_writer_report.md"
+        },
+        {
+          "patch": "AGENTS/tasks/<task_id>/deliverable/patchset/patch.diff"
+        }
+      ],
+      "requires_network": false,
+      "preferred_runner": [
+        "codex"
+      ],
+      "risk": "medium",
+      "confirmations": [
+        "Emphasizes narrative and clarity without changing scientific meaning."
+      ],
+      "has_run_sh": true,
+      "has_prompt_md": true,
+      "degraded": false,
+      "warnings": []
+    },
+    {
+      "name": "prd_writer",
+      "path": "AGENTS/skills/prd_writer",
+      "title": "Product Requirements Writer",
+      "description": "Generate structured PRD artifacts from task request and context files.",
+      "keywords": [
+        "prd",
+        "requirements",
+        "acceptance criteria",
+        "planning"
+      ],
+      "outputs": [
+        {
+          "review": "AGENTS/tasks/<task_id>/review/prd_writer_report.md"
+        },
+        {
+          "patch": "AGENTS/tasks/<task_id>/deliverable/patchset/patch.diff"
+        }
+      ],
+      "requires_network": false,
+      "preferred_runner": [
+        "codex"
+      ],
+      "risk": "low",
+      "confirmations": [
+        "Produces planning docs only; does not execute product changes."
+      ],
+      "has_run_sh": true,
+      "has_prompt_md": true,
+      "degraded": false,
+      "warnings": []
+    },
+    {
+      "name": "prl_writer",
+      "path": "AGENTS/skills/prl_writer",
+      "title": "PRL Style Writer",
+      "description": "Tighten manuscripts for PRL tone, concision, and structure.",
+      "keywords": [
+        "prl",
+        "letter",
+        "concision",
+        "narrative"
+      ],
+      "outputs": [
+        {
+          "review": "AGENTS/tasks/<task_id>/review/prl_writer_report.md"
+        },
+        {
+          "patch": "AGENTS/tasks/<task_id>/deliverable/patchset/patch.diff"
+        }
+      ],
+      "requires_network": false,
+      "preferred_runner": [
+        "codex"
+      ],
+      "risk": "medium",
+      "confirmations": [
+        "Do not change calculations or scientific meaning."
+      ],
+      "has_run_sh": true,
+      "has_prompt_md": true,
+      "degraded": false,
+      "warnings": []
+    },
+    {
+      "name": "referee_redteam_prl",
+      "path": "AGENTS/skills/referee_redteam_prl",
+      "title": "PRL Referee Red Team",
+      "description": "Produce a critical referee-style report focused on PRL standards.",
+      "keywords": [
+        "prl",
+        "referee",
+        "review",
+        "critique"
+      ],
+      "outputs": [
+        {
+          "review": "AGENTS/tasks/<task_id>/review/referee_report.md"
+        },
+        {
+          "patch": "AGENTS/tasks/<task_id>/deliverable/patchset/patch.diff"
+        }
+      ],
+      "requires_network": false,
+      "preferred_runner": [
+        "codex"
+      ],
+      "risk": "medium",
+      "confirmations": [
+        "Review may include hard rejection-level findings."
+      ],
+      "has_run_sh": true,
+      "has_prompt_md": true,
+      "degraded": false,
+      "warnings": []
+    }
+  ],
+  "warnings": []
+}

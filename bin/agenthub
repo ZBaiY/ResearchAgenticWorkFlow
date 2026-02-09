@@ -1,0 +1,470 @@
+#!/usr/bin/env python3
+import argparse
+import json
+import os
+import re
+import subprocess
+import sys
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any, Dict, List, Tuple
+
+
+def now_utc() -> str:
+    return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def repo_root() -> Path:
+    return Path(__file__).resolve().parent.parent
+
+
+def agents_root(root: Path) -> Path:
+    return root / "AGENTS"
+
+
+def skills_dir(root: Path) -> Path:
+    return agents_root(root) / "skills"
+
+
+def tasks_dir(root: Path) -> Path:
+    return agents_root(root) / "tasks"
+
+
+def runtime_dir(root: Path) -> Path:
+    return agents_root(root) / "runtime"
+
+
+def index_path(root: Path) -> Path:
+    return runtime_dir(root) / "skills_index.json"
+
+
+def run_cmd(cmd: List[str], cwd: Path) -> subprocess.CompletedProcess:
+    return subprocess.run(cmd, cwd=str(cwd), text=True, capture_output=True)
+
+
+def strip_quotes(s: str) -> str:
+    s = s.strip()
+    if len(s) >= 2 and ((s[0] == '"' and s[-1] == '"') or (s[0] == "'" and s[-1] == "'")):
+        return s[1:-1]
+    return s
+
+
+def parse_skill_yaml(path: Path) -> Tuple[Dict[str, Any], List[str]]:
+    warnings: List[str] = []
+    data: Dict[str, Any] = {
+        "name": "",
+        "title": "",
+        "description": "",
+        "keywords": [],
+        "outputs": [],
+        "requires_network": False,
+        "preferred_runner": [],
+        "risk": "medium",
+        "confirmations": [],
+    }
+    if not path.exists():
+        warnings.append("missing skill.yaml")
+        return data, warnings
+
+    lines = path.read_text(encoding="utf-8").splitlines()
+    i = 0
+    while i < len(lines):
+        raw = lines[i]
+        i += 1
+        if not raw.strip() or raw.lstrip().startswith("#"):
+            continue
+        m = re.match(r"^([A-Za-z_][A-Za-z0-9_]*):\s*(.*)$", raw)
+        if not m:
+            continue
+        key, val = m.group(1), m.group(2).strip()
+        if key in {"name", "title", "description", "risk"}:
+            data[key] = strip_quotes(val)
+        elif key == "requires_network":
+            data[key] = val.lower() == "true"
+        elif key in {"keywords", "preferred_runner", "confirmations"}:
+            items: List[str] = []
+            while i < len(lines):
+                l = lines[i]
+                if re.match(r"^\s{2,}-\s+", l):
+                    item = re.sub(r"^\s{2,}-\s+", "", l).strip()
+                    items.append(strip_quotes(item))
+                    i += 1
+                else:
+                    break
+            data[key] = items
+        elif key == "outputs":
+            items: List[Dict[str, str]] = []
+            while i < len(lines):
+                l = lines[i]
+                if re.match(r"^\s{2,}-\s+", l):
+                    item = re.sub(r"^\s{2,}-\s+", "", l).strip()
+                    if ":" in item:
+                        k, v = item.split(":", 1)
+                        items.append({k.strip(): strip_quotes(v.strip())})
+                    i += 1
+                else:
+                    break
+            data["outputs"] = items
+
+    if not data.get("name"):
+        warnings.append("skill.yaml missing name")
+    if not data.get("description"):
+        warnings.append("skill.yaml missing description")
+    if not isinstance(data.get("keywords"), list):
+        warnings.append("skill.yaml keywords malformed")
+        data["keywords"] = []
+    return data, warnings
+
+
+def build_index(root: Path) -> Dict[str, Any]:
+    sdir = skills_dir(root)
+    idx: Dict[str, Any] = {
+        "generated_at_utc": now_utc(),
+        "repo_root": str(root),
+        "skills": [],
+        "warnings": [],
+    }
+    for p in sorted(sdir.iterdir()):
+        if not p.is_dir():
+            continue
+        name = p.name
+        sy = p / "skill.yaml"
+        prompt = p / "prompt.md"
+        runsh = p / "run.sh"
+        meta, warns = parse_skill_yaml(sy)
+        degraded = not sy.exists() or len(warns) > 0
+        if degraded:
+            desc = ""
+            if prompt.exists():
+                for line in prompt.read_text(encoding="utf-8").splitlines():
+                    t = line.strip()
+                    if t and not t.startswith("#"):
+                        desc = t
+                        break
+            if not meta.get("name"):
+                meta["name"] = name
+            if not meta.get("title"):
+                meta["title"] = name
+            if not meta.get("description"):
+                meta["description"] = desc or "No description available"
+
+        rec = {
+            "name": name,
+            "path": str(p.relative_to(root)),
+            "title": meta.get("title", name),
+            "description": meta.get("description", ""),
+            "keywords": meta.get("keywords", []),
+            "outputs": meta.get("outputs", []),
+            "requires_network": bool(meta.get("requires_network", False)),
+            "preferred_runner": meta.get("preferred_runner", []),
+            "risk": meta.get("risk", "medium"),
+            "confirmations": meta.get("confirmations", []),
+            "has_run_sh": runsh.exists(),
+            "has_prompt_md": prompt.exists(),
+            "degraded": degraded,
+            "warnings": warns,
+        }
+        idx["skills"].append(rec)
+        for w in warns:
+            idx["warnings"].append(f"{name}: {w}")
+
+    runtime_dir(root).mkdir(parents=True, exist_ok=True)
+    index_path(root).write_text(json.dumps(idx, indent=2), encoding="utf-8")
+    return idx
+
+
+def ensure_index(root: Path) -> Dict[str, Any]:
+    ip = index_path(root)
+    if not ip.exists():
+        return build_index(root)
+    return json.loads(ip.read_text(encoding="utf-8"))
+
+
+def tokenize(text: str) -> List[str]:
+    return re.findall(r"[a-z0-9_+-]+", text.lower())
+
+
+def score_skill(skill: Dict[str, Any], query: str) -> int:
+    qtokens = tokenize(query)
+    fields = " ".join(
+        [
+            skill.get("name", ""),
+            skill.get("title", ""),
+            skill.get("description", ""),
+            " ".join(skill.get("keywords", []) or []),
+        ]
+    ).lower()
+    score = 0
+    for t in qtokens:
+        if t in fields:
+            score += 1
+    if skill.get("name", "") in query.lower():
+        score += 3
+    return score
+
+
+def cmd_index(root: Path) -> int:
+    idx = build_index(root)
+    print(f"INDEX={index_path(root)} SKILLS={len(idx.get('skills', []))} WARNINGS={len(idx.get('warnings', []))}")
+    for w in idx.get("warnings", []):
+        print(f"WARN={w}")
+    return 0
+
+
+def fmt_outputs(outputs: List[Dict[str, str]]) -> str:
+    if not outputs:
+        return "NONE"
+    parts = []
+    for item in outputs:
+        for k, v in item.items():
+            parts.append(f"{k}:{v}")
+    return " | ".join(parts)
+
+
+def cmd_suggest(root: Path, text: str) -> int:
+    idx = ensure_index(root)
+    skills = idx.get("skills", [])
+    ranked = sorted(skills, key=lambda s: (-score_skill(s, text), s.get("name", "")))
+    top = ranked[:5]
+
+    for s in top:
+        print(
+            "CARD="
+            f"SKILL={s.get('name')} "
+            f"DESC={s.get('description','').replace(' ', '_')} "
+            f"RISK={s.get('risk','medium')} "
+            f"NETWORK={str(bool(s.get('requires_network', False))).lower()} "
+            f"OUTPUTS={fmt_outputs(s.get('outputs', [])).replace(' ', '_')}"
+        )
+
+    if not top:
+        print("RECOMMENDED=NONE")
+        return 0
+
+    s0 = score_skill(top[0], text)
+    ties = [s for s in ranked if score_skill(s, text) == s0 and s0 > 0]
+    if len(ties) == 1:
+        print(f"RECOMMENDED={top[0].get('name')}")
+    else:
+        print("RECOMMENDED=NONE")
+    return 0
+
+
+def git_head(root: Path) -> str:
+    cp = run_cmd(["git", "rev-parse", "HEAD"], root)
+    if cp.returncode != 0:
+        return ""
+    return cp.stdout.strip()
+
+
+def write_request(task_dir: Path, args: argparse.Namespace) -> str:
+    req_path = task_dir / "request.md"
+    if args.request == "-":
+        content = sys.stdin.read()
+        req_path.write_text(content, encoding="utf-8")
+        return "stdin"
+    if args.request_file:
+        src = Path(args.request_file).expanduser().resolve()
+        content = src.read_text(encoding="utf-8")
+        req_path.write_text(content, encoding="utf-8")
+        return f"file:{src}"
+    if args.edit:
+        if not req_path.exists() or not req_path.read_text(encoding="utf-8").strip():
+            req_path.write_text(
+                "# Request\n\nGoal:\nTBD\n\nConstraints:\n- TBD\n\nInputs:\n- TBD\n",
+                encoding="utf-8",
+            )
+        editor = os.environ.get("EDITOR", "vim")
+        subprocess.run([editor, str(req_path)], check=False)
+        return f"editor:{editor}"
+
+    req_path.write_text(
+        "# Request\n\nGoal:\nTBD\n\nBackground:\nTBD\n\nConstraints:\n- TBD\n\nDeliverables:\n- TBD\n",
+        encoding="utf-8",
+    )
+    editor = os.environ.get("EDITOR", "vim")
+    subprocess.run([editor, str(req_path)], check=False)
+    return f"template+editor:{editor}"
+
+
+def cmd_start(root: Path, args: argparse.Namespace) -> int:
+    cp = run_cmd([str(root / "bin" / "agentctl"), "new", args.task_name], root)
+    if cp.returncode != 0:
+        sys.stderr.write(cp.stderr)
+        return cp.returncode
+    task_id = cp.stdout.strip().splitlines()[-1].strip()
+    tdir = tasks_dir(root) / task_id
+
+    source = write_request(tdir, args)
+
+    meta = {
+        "task_id": task_id,
+        "skill": args.skill,
+        "created_at_utc": now_utc(),
+        "request_source": source,
+        "repo_root": str(root),
+        "git_head": git_head(root),
+    }
+    (tdir / "meta.json").write_text(json.dumps(meta, indent=2), encoding="utf-8")
+
+    print(f"TASK={task_id} REQUEST=AGENTS/tasks/{task_id}/request.md")
+    return 0
+
+
+def load_skill_from_index(idx: Dict[str, Any], skill: str) -> Dict[str, Any]:
+    for s in idx.get("skills", []):
+        if s.get("name") == skill:
+            return s
+    return {}
+
+
+def infer_skill(root: Path, task_id: str) -> str:
+    meta = tasks_dir(root) / task_id / "meta.json"
+    if meta.exists():
+        try:
+            m = json.loads(meta.read_text(encoding="utf-8"))
+            s = m.get("skill", "")
+            if s:
+                return s
+        except Exception:
+            return ""
+    return ""
+
+
+def resolve_output_paths(root: Path, task_id: str, skill_meta: Dict[str, Any]) -> Tuple[str, str]:
+    patch = "NONE"
+    report = "NONE"
+    outputs = skill_meta.get("outputs", []) or []
+    for item in outputs:
+        if "patch" in item:
+            p = item["patch"].replace("<task_id>", task_id)
+            path = root / p
+            patch = p if path.exists() else "NONE"
+        if "review" in item:
+            p = item["review"].replace("<task_id>", task_id)
+            if p.endswith("..."):
+                rdir = root / p[:-3]
+                if rdir.exists():
+                    matches = sorted([x for x in rdir.glob("*.md")])
+                    if matches:
+                        report = str(matches[0].relative_to(root))
+                continue
+            path = root / p
+            report = p if path.exists() else "NONE"
+
+    if patch == "NONE":
+        p = f"AGENTS/tasks/{task_id}/deliverable/patchset/patch.diff"
+        if (root / p).exists():
+            patch = p
+    if report == "NONE":
+        rdir = root / f"AGENTS/tasks/{task_id}/review"
+        if rdir.exists():
+            files = sorted(rdir.glob("*.md"))
+            if files:
+                report = str(files[0].relative_to(root))
+    return patch, report
+
+
+def cmd_run(root: Path, args: argparse.Namespace) -> int:
+    idx = ensure_index(root)
+    task_id = args.task
+    skill = args.skill or infer_skill(root, task_id)
+    if not skill:
+        print("ERROR=Missing skill. Provide --skill or set skill in AGENTS/tasks/<task_id>/meta.json", file=sys.stderr)
+        return 2
+
+    smeta = load_skill_from_index(idx, skill)
+    confirmations = smeta.get("confirmations", []) if smeta else []
+    for c in confirmations:
+        print(f"CONFIRM_NOTE={c}")
+
+    if not args.yes:
+        ans = input("Proceed with run? [y/N]: ").strip().lower()
+        if ans not in {"y", "yes"}:
+            print("ABORTED=true")
+            return 1
+
+    cp = subprocess.run([str(root / "bin" / "agentctl"), "run", skill, "--task", task_id], cwd=str(root))
+    if cp.returncode != 0:
+        return cp.returncode
+
+    patch, report = resolve_output_paths(root, task_id, smeta)
+    print(f"TASK={task_id} SKILL={skill} PATCH={patch} REPORT={report}")
+    return 0
+
+
+def cmd_doctor(root: Path) -> int:
+    errors: List[str] = []
+    checks = [
+        root / "AGENTS" / "skills",
+        root / "AGENTS" / "tasks",
+        root / "USER",
+        root / "GATE",
+        root / "bin" / "agentctl",
+    ]
+    for p in checks:
+        if not p.exists():
+            errors.append(f"missing:{p.relative_to(root)}")
+
+    agentctl = root / "bin" / "agentctl"
+    if agentctl.exists() and not os.access(agentctl, os.X_OK):
+        errors.append("agentctl_not_executable")
+
+    sdir = skills_dir(root)
+    if sdir.exists():
+        for s in sorted(sdir.iterdir()):
+            if s.is_dir() and not (s / "run.sh").exists():
+                errors.append(f"missing_run_sh:{s.relative_to(root)}")
+
+    if errors:
+        for e in errors:
+            print(f"ERROR={e}")
+        return 1
+
+    print("DOCTOR=ok")
+    return 0
+
+
+def main() -> int:
+    root = repo_root()
+
+    parser = argparse.ArgumentParser(prog="agenthub")
+    sub = parser.add_subparsers(dest="cmd", required=True)
+
+    sub.add_parser("index")
+
+    ps = sub.add_parser("suggest")
+    ps.add_argument("text")
+
+    pstart = sub.add_parser("start")
+    pstart.add_argument("--skill", required=True)
+    pstart.add_argument("--task-name", required=True)
+    pstart.add_argument("--request", default=None)
+    pstart.add_argument("--request-file", default=None)
+    pstart.add_argument("--edit", action="store_true")
+
+    prun = sub.add_parser("run")
+    prun.add_argument("--task", required=True)
+    prun.add_argument("--skill", default=None)
+    prun.add_argument("--yes", action="store_true")
+
+    sub.add_parser("doctor")
+
+    args = parser.parse_args()
+
+    if args.cmd == "index":
+        return cmd_index(root)
+    if args.cmd == "suggest":
+        return cmd_suggest(root, args.text)
+    if args.cmd == "start":
+        return cmd_start(root, args)
+    if args.cmd == "run":
+        return cmd_run(root, args)
+    if args.cmd == "doctor":
+        return cmd_doctor(root)
+
+    return 2
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

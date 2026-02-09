@@ -1,0 +1,17 @@
+name: referee_redteam_prl
+title: PRL Referee Red Team
+description: Produce a critical referee-style report focused on PRL standards.
+keywords:
+  - prl
+  - referee
+  - review
+  - critique
+outputs:
+  - review: "AGENTS/tasks/<task_id>/review/referee_report.md"
+  - patch: "AGENTS/tasks/<task_id>/deliverable/patchset/patch.diff"
+requires_network: false
+preferred_runner:
+  - codex
+risk: medium
+confirmations:
+  - Review may include hard rejection-level findings.

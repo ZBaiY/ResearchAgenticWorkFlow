@@ -1,0 +1,129 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "prd_writer schemas",
+  "oneOf": [
+    { "$ref": "#/$defs/files_manifest" },
+    { "$ref": "#/$defs/prd_json" }
+  ],
+  "$defs": {
+    "files_manifest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "task_id",
+        "skill",
+        "inputs",
+        "outputs",
+        "sections_present",
+        "requirement_counts",
+        "open_questions_count",
+        "status"
+      ],
+      "properties": {
+        "task_id": { "type": "string" },
+        "skill": { "type": "string" },
+        "inputs": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "outputs": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "sections_present": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "requirement_counts": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["functional", "non_functional"],
+          "properties": {
+            "functional": { "type": "integer", "minimum": 0 },
+            "non_functional": { "type": "integer", "minimum": 0 }
+          }
+        },
+        "open_questions_count": { "type": "integer", "minimum": 0 },
+        "status": { "type": "string", "enum": ["draft", "review", "final"] }
+      }
+    },
+    "prd_json": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "title",
+        "metadata",
+        "goals",
+        "non_goals",
+        "requirements",
+        "acceptance_criteria",
+        "risks",
+        "open_questions"
+      ],
+      "properties": {
+        "title": { "type": "string" },
+        "metadata": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["owner", "date", "version", "status", "related_task_id", "links"],
+          "properties": {
+            "owner": { "type": "string" },
+            "date": { "type": "string" },
+            "version": { "type": "string" },
+            "status": { "type": "string", "enum": ["draft", "review", "final"] },
+            "related_task_id": { "type": "string" },
+            "links": {
+              "type": "array",
+              "items": { "type": "string" }
+            }
+          }
+        },
+        "goals": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "non_goals": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "requirements": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "type", "text"],
+            "properties": {
+              "id": { "type": "string" },
+              "type": { "type": "string", "enum": ["functional", "non_functional"] },
+              "text": { "type": "string" }
+            }
+          }
+        },
+        "acceptance_criteria": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "maps_to", "text"],
+            "properties": {
+              "id": { "type": "string" },
+              "maps_to": {
+                "type": "array",
+                "items": { "type": "string" }
+              },
+              "text": { "type": "string" }
+            }
+          }
+        },
+        "risks": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "open_questions": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    }
+  }
+}

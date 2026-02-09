@@ -1,0 +1,53 @@
+{
+  "meta": {
+    "task_id": "20260209T073959Z_compute_wolfram_demo",
+    "job_name": "compute_20260209T073959Z_compute_wolfram_demo",
+    "backend": "wolfram",
+    "backend_available": false,
+    "status": "unavailable",
+    "runner": "AGENTS/runtime/compute_runner.py",
+    "started_at_utc": "2026-02-09T07:39:59Z",
+    "finished_at_utc": "2026-02-09T07:39:59Z",
+    "duration_seconds": 0.01121,
+    "versions": {
+      "python": "Python 3.12.3",
+      "wolframscript": "unavailable"
+    },
+    "commands": [
+      "wolframscript -file /Users/zhaoyub/Desktop/PHYSICS/AgenticWorkflow/AGENTS/tasks/20260209T073959Z_compute_wolfram_demo/work/compute/main.wl"
+    ]
+  },
+  "inputs": [
+    {
+      "path": "/Users/zhaoyub/Desktop/PHYSICS/AgenticWorkflow/AGENTS/tasks/20260209T073959Z_compute_wolfram_demo/request.md",
+      "exists": true,
+      "bytes": 94,
+      "sha256": "7e1328842974a7e0f47dd895eb1fe889a78065ae2f8f08cdc5b386dadeecece4",
+      "name": "task_request"
+    }
+  ],
+  "params": {
+    "a": 2.0,
+    "b": 1.0,
+    "sample_points": [
+      0,
+      1,
+      2,
+      3,
+      4
+    ],
+    "uncertainty_sigma": 0.05
+  },
+  "results": {},
+  "uncertainty": {
+    "method": "parameter",
+    "sigma": 0.05
+  },
+  "sanity_checks": [
+    {
+      "name": "backend_available",
+      "passed": false,
+      "detail": "wolframscript not installed or not on PATH"
+    }
+  ]
+}

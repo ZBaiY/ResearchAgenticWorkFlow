@@ -1,0 +1,74 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "nature_comm_writer files manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "task_id",
+    "skill",
+    "input_paper_root",
+    "shadow_root",
+    "edited_files",
+    "build_checks",
+    "notes"
+  ],
+  "properties": {
+    "task_id": { "type": "string" },
+    "skill": { "type": "string" },
+    "journal": { "type": "string", "enum": ["Nature Communications"] },
+    "input_paper_root": { "type": "string" },
+    "shadow_root": { "type": "string" },
+    "edited_files": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "change_type", "purpose", "risk_level"],
+        "properties": {
+          "path": { "type": "string" },
+          "change_type": { "type": "string", "enum": ["edit", "add", "delete", "rename"] },
+          "purpose": { "type": "string" },
+          "risk_level": { "type": "string", "enum": ["low", "medium", "high"] }
+        }
+      }
+    },
+    "narrative_notes": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["accessibility_actions", "motivation_actions", "figure_story_actions"],
+      "properties": {
+        "accessibility_actions": { "type": "string" },
+        "motivation_actions": { "type": "string" },
+        "figure_story_actions": { "type": "string" }
+      }
+    },
+    "section_structure": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["has_results_section", "has_discussion_section", "supplementary_references"],
+      "properties": {
+        "has_results_section": { "type": "boolean" },
+        "has_discussion_section": { "type": "boolean" },
+        "supplementary_references": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "build_checks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "cmd", "status", "log_path"],
+        "properties": {
+          "name": { "type": "string" },
+          "cmd": { "type": "string" },
+          "status": { "type": "string", "enum": ["skipped", "ok", "fail"] },
+          "log_path": { "type": "string" }
+        }
+      }
+    },
+    "notes": { "type": "string" }
+  }
+}

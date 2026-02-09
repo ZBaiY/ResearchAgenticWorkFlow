@@ -1,0 +1,8 @@
+# artifacts.lock (user-maintained)
+# Track final assets for reproducibility.
+# Example entry format (free-form):
+# - USER/fig/fig1.pdf:
+#     src: AGENTS/tasks/2026-02-09T.../outputs/fig/fig1.pdf
+#     gen_cmd: python AGENTS/tasks/.../work/make_fig1.py
+#     git: <commit>
+#     data_hash: <sha256>

@@ -1,0 +1,17 @@
+name: prl_writer
+title: PRL Style Writer
+description: Tighten manuscripts for PRL tone, concision, and structure.
+keywords:
+  - prl
+  - letter
+  - concision
+  - narrative
+outputs:
+  - review: "AGENTS/tasks/<task_id>/review/prl_writer_report.md"
+  - patch: "AGENTS/tasks/<task_id>/deliverable/patchset/patch.diff"
+requires_network: false
+preferred_runner:
+  - codex
+risk: medium
+confirmations:
+  - Do not change calculations or scientific meaning.

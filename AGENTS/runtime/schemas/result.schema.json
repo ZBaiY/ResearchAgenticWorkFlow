@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "compute result",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["meta", "inputs", "params", "results", "uncertainty", "sanity_checks"],
+  "properties": {
+    "meta": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["task_id", "backend", "status", "commands", "versions"]
+    },
+    "inputs": {
+      "type": "array",
+      "items": { "type": "object" }
+    },
+    "params": {
+      "type": "object"
+    },
+    "results": {
+      "type": "object"
+    },
+    "uncertainty": {
+      "type": "object"
+    },
+    "sanity_checks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "passed"],
+        "properties": {
+          "name": { "type": "string" },
+          "passed": { "type": "boolean" },
+          "detail": { "type": "string" }
+        },
+        "additionalProperties": true
+      }
+    }
+  }
+}

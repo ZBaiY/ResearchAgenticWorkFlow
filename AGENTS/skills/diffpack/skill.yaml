@@ -1,0 +1,16 @@
+name: diffpack
+title: Patchset Packager
+description: Prepare patchset deliverable scaffolding for task outputs.
+keywords:
+  - patch
+  - diff
+  - deliverable
+outputs:
+  - review: "AGENTS/tasks/<task_id>/review/..."
+  - patch: "AGENTS/tasks/<task_id>/deliverable/patchset/patch.diff"
+requires_network: false
+preferred_runner:
+  - codex
+risk: low
+confirmations:
+  - Generates patch packaging artifacts only; no USER/GATE writes.

@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "compute skill manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "task_id",
+    "skill",
+    "backend",
+    "work_compute_dir",
+    "files_written",
+    "status"
+  ],
+  "properties": {
+    "task_id": { "type": "string" },
+    "skill": { "type": "string" },
+    "backend": { "type": "string", "enum": ["python", "wolfram"] },
+    "work_compute_dir": { "type": "string" },
+    "files_written": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "status": { "type": "string", "enum": ["ok", "failed"] },
+    "notes": { "type": "string" }
+  }
+}

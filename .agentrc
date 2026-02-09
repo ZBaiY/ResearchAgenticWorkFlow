@@ -1,0 +1,7 @@
+# .agentrc (project-local)
+# Paths policy (human-readable contract; enforce via your runner/tooling)
+ALLOW_WRITE:
+  - AGENTS/
+DENY_WRITE:
+  - USER/
+  - GATE/

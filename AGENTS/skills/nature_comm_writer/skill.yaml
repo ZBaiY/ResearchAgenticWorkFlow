@@ -1,0 +1,17 @@
+name: nature_comm_writer
+title: Nature Communications Writer
+description: Improve broad-audience narrative clarity and figure-led storytelling.
+keywords:
+  - nature
+  - narrative
+  - accessibility
+  - manuscript
+outputs:
+  - review: "AGENTS/tasks/<task_id>/review/nature_comm_writer_report.md"
+  - patch: "AGENTS/tasks/<task_id>/deliverable/patchset/patch.diff"
+requires_network: false
+preferred_runner:
+  - codex
+risk: medium
+confirmations:
+  - Emphasizes narrative and clarity without changing scientific meaning.

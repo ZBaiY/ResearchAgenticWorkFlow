@@ -1,0 +1,28 @@
+# macOS
+.DS_Store
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+.env
+*.egg-info/
+dist/
+build/
+
+# LaTeX build artifacts
+*.aux
+*.bbl
+*.blg
+*.log
+*.out
+*.toc
+*.fls
+*.fdb_latexmk
+*.synctex.gz
+
+# Agent outputs (optional: keep tasks tracked or not)
+# If you want to keep all tasks in git, comment this out.
+AGENTS/tasks/**/logs/
+AGENTS/tasks/**/work/__pycache__/
+AGENTS/cache/
