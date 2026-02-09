@@ -42,15 +42,11 @@ Run this once after entering the repo:
 
 `./bart "your request"`
 
-Optional: alias `bart='./bart'`
-
-Permanent alias (zsh):
-```sh
-pwd
-# add this line to ~/.zshrc using your repo path from pwd
-alias bart='/ABSOLUTE/PATH/TO/REPO/bart'
-source ~/.zshrc
-```
+`./bart ...` always works inside this repo.
+Bare `bart ...` needs PATH. Choose one:
+`./bin/install_bart_path --apply` then `source ~/.zshrc`
+or
+`./bin/agent --client <codex|claude|gemini>` (injects repo PATH for that launched session only).
 
 ## What You Usually Touch
 

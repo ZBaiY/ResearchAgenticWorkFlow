@@ -1,0 +1,94 @@
+#!/usr/bin/env sh
+set -eu
+
+usage() {
+  cat <<'USAGE'
+Usage:
+  ./bin/install_bart_path --dry-run   # default
+  ./bin/install_bart_path --apply
+USAGE
+}
+
+get_repo_root() {
+  script_path=$0
+  case "$script_path" in
+    /*) ;;
+    *) script_path="$(pwd)/$script_path" ;;
+  esac
+  script_dir=$(CDPATH= cd -- "$(dirname -- "$script_path")" && pwd)
+  CDPATH= cd -- "$script_dir/.." && pwd
+}
+
+ensure_backup() {
+  rc_file=$1
+  timestamp=$(date +%Y%m%d%H%M%S)
+  backup="${rc_file}.bak.${timestamp}"
+  if [ -f "$rc_file" ]; then
+    cp "$rc_file" "$backup"
+  else
+    : > "$rc_file"
+    cp "$rc_file" "$backup"
+  fi
+  printf '%s\n' "$backup"
+}
+
+mode="--dry-run"
+if [ "$#" -gt 1 ]; then
+  usage >&2
+  exit 1
+fi
+if [ "$#" -eq 1 ]; then
+  case "$1" in
+    --dry-run|--apply)
+      mode="$1"
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      usage >&2
+      exit 1
+      ;;
+  esac
+fi
+
+rc_file="$HOME/.zshrc"
+repo_root=$(get_repo_root)
+path_line="export PATH=\"$repo_root:\$PATH\""
+
+print_instructions() {
+  printf '%s\n' "$path_line"
+  printf '\n'
+  printf '%s\n' "source ~/.zshrc"
+  printf '%s\n' "hash -r"
+  printf '%s\n' "which bart"
+  printf '%s\n' "bart --help"
+}
+
+line_exists() {
+  [ -f "$rc_file" ] && grep -Fqx "$path_line" "$rc_file"
+}
+
+case "$mode" in
+  --dry-run)
+    print_instructions
+    ;;
+  --apply)
+    if line_exists; then
+      printf '%s\n' "No change: line already present in ~/.zshrc"
+      print_instructions
+      exit 0
+    fi
+
+    backup_path=$(ensure_backup "$rc_file")
+    if [ -s "$rc_file" ]; then
+      printf '\n%s\n' "$path_line" >> "$rc_file"
+    else
+      printf '%s\n' "$path_line" >> "$rc_file"
+    fi
+
+    printf '%s\n' "Updated ~/.zshrc (backup: $backup_path)"
+    print_instructions
+    ;;
+esac
