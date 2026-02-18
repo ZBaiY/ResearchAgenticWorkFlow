@@ -71,6 +71,16 @@ add_dir "$TDIR/deliverable/prd" "deliverable/prd"
 add_file "$TDIR/outputs/compute/result.json" "outputs/compute/result.json"
 add_file "$TDIR/outputs/paper_profile/paper_profile.json" "paper_profile.json"
 add_file "$TDIR/logs/compute/consent.json" "logs/compute_consent.json"
+if [[ "$SKILL" == "compute_numerical" || "$SKILL" == "compute_algebraic" ]]; then
+  add_dir "$TDIR/work" "work"
+fi
+if [[ "$SKILL" == "compute_algebraic_multistep" ]]; then
+  add_dir "$TDIR/work/src/steps" "work/src/steps"
+  add_file "$TDIR/work/src/plan.json" "work/src/plan.json"
+  add_file "$TDIR/request.json" "request.json"
+  add_file "$TDIR/work/report.md" "work/report.md"
+  add_dir "$TDIR/work/fig" "work/fig"
+fi
 
 if [[ ${#SRC[@]} -eq 0 ]]; then
   cat > "$CONSENT_JSON" <<EOF2
@@ -168,11 +178,78 @@ if [[ "$SKILL" == "paper_profile_update" && -f "$SKILL_STAGE_DIR/paper_profile.j
       "dst": "USER/paper/meta/paper_profile.json"
     }
   ],
-  "command": ["bash", "AGENTS/runtime/promote_to_user.sh", "--task", "$TASK_ID"],
   "confirmation_required": true,
-  "allowed_responses": ["yes", "y", "no", "n"],
-  "on_yes": "execute",
-  "on_no": "noop"
+  "allowed_responses": ["yes", "y", "no", "n"]
+}
+EOF2
+fi
+
+if [[ "$SKILL" == "compute_numerical" || "$SKILL" == "compute_algebraic" ]]; then
+  cat > "$TASK_STAGE_DIR/PROMOTE.json" <<EOF2
+{
+  "kind": "promotion_contract",
+  "skill": "$SKILL",
+  "from": "GATE/staged/$TASK_ID/$SKILL",
+  "mappings": [
+    {
+      "src": "GATE/staged/$TASK_ID/$SKILL/work/src",
+      "dst": "USER/src/compute/$SKILL/$TASK_ID"
+    },
+    {
+      "src": "GATE/staged/$TASK_ID/$SKILL/work/fig",
+      "dst": "USER/fig/compute/$TASK_ID"
+    },
+    {
+      "src": "GATE/staged/$TASK_ID/$SKILL/work/report.md",
+      "dst": "USER/reports/compute/$TASK_ID.md"
+    }
+  ],
+  "allowed_dst_prefixes": [
+    "USER/src/compute/",
+    "USER/fig/compute/",
+    "USER/reports/compute/"
+  ],
+  "confirmation_required": true,
+  "allowed_responses": ["yes", "y", "no", "n"]
+}
+EOF2
+fi
+
+if [[ "$SKILL" == "compute_algebraic_multistep" ]]; then
+  cat > "$TASK_STAGE_DIR/PROMOTE.json" <<EOF2
+{
+  "kind": "promotion_contract",
+  "skill": "$SKILL",
+  "from": "GATE/staged/$TASK_ID/$SKILL",
+  "mappings": [
+    {
+      "src": "GATE/staged/$TASK_ID/$SKILL/work/src/steps",
+      "dst": "USER/src/compute/$SKILL/$TASK_ID/steps"
+    },
+    {
+      "src": "GATE/staged/$TASK_ID/$SKILL/work/src/plan.json",
+      "dst": "USER/src/compute/$SKILL/$TASK_ID/plan.json"
+    },
+    {
+      "src": "GATE/staged/$TASK_ID/$SKILL/request.json",
+      "dst": "USER/src/compute/$SKILL/$TASK_ID/request.json"
+    },
+    {
+      "src": "GATE/staged/$TASK_ID/$SKILL/work/report.md",
+      "dst": "USER/reports/compute/$TASK_ID.md"
+    },
+    {
+      "src": "GATE/staged/$TASK_ID/$SKILL/work/fig",
+      "dst": "USER/fig/compute/$TASK_ID"
+    }
+  ],
+  "allowed_dst_prefixes": [
+    "USER/src/compute/",
+    "USER/fig/compute/",
+    "USER/reports/compute/"
+  ],
+  "confirmation_required": true,
+  "allowed_responses": ["yes", "y", "no", "n"]
 }
 EOF2
 fi

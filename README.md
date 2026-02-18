@@ -11,7 +11,7 @@ Project-local workflow for research tasks (writing, literature scouting, computa
 7. Default mode (`AGENT_MODE=off`) never auto-promotes; promotion requires explicit confirmation: `PROMOTE_TO_USER? [y/N]`.
 8. Canonical promote command is `./AGENTS/runtime/promote_to_user.sh --task <task_id>`.
 9. Global mode can be enabled explicitly with `./bin/agenthub run ... --agent-mode --auto-promote-user`.
-10. In non-interactive runs, auto-promotion still requires `--allow-user-write-noninteractive`; otherwise it stages and prints `NEXT_PROMOTE=...`.
+10. In non-interactive runs, promotion requires `--yes --allow-user-write-noninteractive`; otherwise promotion is skipped.
 11. `USER/` is canonical and is never auto-written unless explicitly promoted.
 12. Optional dangerous routing mode: `!./bart --full-agent "<request>"` (auto-picks and executes).
 13. If you want zero agent flow, do not run `./bart` or `./bin/agenthub`; use your tools directly.
@@ -19,4 +19,4 @@ Project-local workflow for research tasks (writing, literature scouting, computa
 Example flow:
 - `!bart "update metadata" --pick 1 --start`
 - `!bin/agenthub run --task <task_id> --yes`
-- respond to `PROMOTE_TO_USER? [y/N]` or run `./AGENTS/runtime/promote_to_user.sh --task <task_id>` later.
+- respond to `PROMOTE_TO_USER? [y/N]` or run `./bin/agenthub promote --task <task_id>` later.

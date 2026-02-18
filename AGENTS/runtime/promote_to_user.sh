@@ -23,8 +23,8 @@ prompt_yes_no_fuzzy() {
   fi
   ans="$(printf '%s' "$ans" | tr '[:upper:]' '[:lower:]')"
   case "$ans" in
-    y|yes|yeah|ok|sure|1|promote) return 0 ;;
-    n|no|stop|0|cancel|"") return 1 ;;
+    y|yes) return 0 ;;
+    n|no|"") return 1 ;;
     *)
       # Ask once more then default no.
       ans=""
@@ -33,7 +33,7 @@ prompt_yes_no_fuzzy() {
       fi
       ans="$(printf '%s' "$ans" | tr '[:upper:]' '[:lower:]')"
       case "$ans" in
-        y|yes|yeah|ok|sure|1|promote) return 0 ;;
+        y|yes) return 0 ;;
       esac
       return 1
       ;;
@@ -89,7 +89,7 @@ if is_tty; then
   fi
 else
   if [[ "$FLAG_YES" -ne 1 || "$ALLOW_NONINTERACTIVE" -ne 1 ]]; then
-    echo "NEXT=./AGENTS/runtime/promote_to_user.sh --task $TASK_ID --yes --allow-user-write-noninteractive" >&2
+    echo "noninteractive_requires_explicit_flags" >&2
     exit 2
   fi
 fi
@@ -108,23 +108,59 @@ fi
 
 PROMOTE_ROWS="$(python3 - <<PY
 import json
+import sys
+from pathlib import PurePosixPath
 from pathlib import Path
-p = Path("$PROMOTE_JSON")
-obj = json.loads(p.read_text(encoding="utf-8"))
-skill = str(obj.get("skill", "")).strip()
-maps = obj.get("mappings", [])
-if not isinstance(maps, list):
-    maps = []
-print(f"SKILL={skill}")
-for m in maps:
-    if not isinstance(m, dict):
-        continue
-    src = str(m.get("src", "")).strip()
-    dst = str(m.get("dst", "")).strip()
-    if src and dst:
-        print(f"MAP={src}|{dst}")
+
+try:
+    task_id = "$TASK_ID"
+    src_required_prefix = f"GATE/staged/{task_id}/"
+
+    def normalize_rel(raw: str, field_name: str) -> str:
+        val = str(raw or "").strip()
+        if not val:
+            raise ValueError(f"missing {field_name}")
+        p = PurePosixPath(val)
+        if p.is_absolute():
+            raise ValueError(f"{field_name} must be relative: {val}")
+        if any(part in {"", ".", ".."} for part in p.parts):
+            raise ValueError(f"{field_name} contains invalid segments: {val}")
+        return p.as_posix()
+
+    def normalize_prefix(raw: str) -> str:
+        val = normalize_rel(raw, "allowed_dst_prefix")
+        return val if val.endswith("/") else f"{val}/"
+
+    p = Path("$PROMOTE_JSON")
+    obj = json.loads(p.read_text(encoding="utf-8"))
+    skill = str(obj.get("skill", "")).strip()
+    maps = obj.get("mappings", [])
+    raw_prefixes = obj.get("allowed_dst_prefixes", ["USER/"])
+    if not isinstance(raw_prefixes, list) or not raw_prefixes:
+        raise ValueError("allowed_dst_prefixes must be a non-empty list when present")
+    allowed_dst_prefixes = tuple(normalize_prefix(x) for x in raw_prefixes)
+    if not isinstance(maps, list):
+        maps = []
+    print(f"SKILL={skill}")
+    for m in maps:
+        if not isinstance(m, dict):
+            continue
+        src = normalize_rel(m.get("src", ""), "src")
+        dst = normalize_rel(m.get("dst", ""), "dst")
+        if not src.startswith(src_required_prefix):
+            raise ValueError(f"src outside staged task boundary: {src}")
+        if not any(dst.startswith(prefix) for prefix in allowed_dst_prefixes):
+            raise ValueError(f"dst outside allowed USER boundary: {dst}")
+        if src and dst:
+            print(f"MAP={src}|{dst}")
+except Exception as exc:
+    print(f"mapping_validation_error: {exc}", file=sys.stderr)
+    sys.exit(2)
 PY
-)"
+)" || {
+  echo "Invalid promotion contract: mapping validation failed: $PROMOTE_JSON" >&2
+  exit 2
+}
 
 SKILL="$(printf '%s\n' "$PROMOTE_ROWS" | sed -n 's/^SKILL=//p' | head -n1)"
 if [[ -z "$SKILL" ]]; then
@@ -132,16 +168,65 @@ if [[ -z "$SKILL" ]]; then
   exit 2
 fi
 
+STAGE_ROOT_REAL="$(python3 - <<PY
+from pathlib import Path
+print(Path("$ROOT/GATE/staged/$TASK_ID").resolve(strict=True))
+PY
+)"
+USER_ROOT_REAL="$(python3 - <<PY
+from pathlib import Path
+print(Path("$ROOT/USER").resolve(strict=True))
+PY
+)"
+
 TARGETS=()
 while IFS= read -r line; do
   [[ "$line" == MAP=* ]] || continue
   payload="${line#MAP=}"
   SRC_REL="${payload%%|*}"
   DST_REL="${payload#*|}"
+  case "$SRC_REL" in
+    GATE/staged/"$TASK_ID"/*) ;;
+    *)
+      echo "Invalid promotion mapping src boundary: $SRC_REL" >&2
+      exit 2
+      ;;
+  esac
+  case "$DST_REL" in
+    USER/*) ;;
+    *)
+      echo "Invalid promotion mapping dst boundary: $DST_REL" >&2
+      exit 2
+      ;;
+  esac
   SRC="$ROOT/$SRC_REL"
   DST="$ROOT/$DST_REL"
   [[ -f "$SRC" || -d "$SRC" ]] || { echo "Missing staged artifact: $SRC_REL" >&2; exit 2; }
+  SRC_REAL="$(python3 - <<PY
+from pathlib import Path
+print(Path("$SRC").resolve(strict=True))
+PY
+)"
+  case "$SRC_REAL" in
+    "$STAGE_ROOT_REAL"/*) ;;
+    *)
+      echo "Invalid promotion source resolution: $SRC_REL" >&2
+      exit 2
+      ;;
+  esac
   mkdir -p "$(dirname "$DST")"
+  DST_PARENT_REAL="$(python3 - <<PY
+from pathlib import Path
+print(Path("$DST").parent.resolve(strict=True))
+PY
+)"
+  case "$DST_PARENT_REAL" in
+    "$USER_ROOT_REAL"|"$USER_ROOT_REAL"/*) ;;
+    *)
+      echo "Invalid promotion destination resolution: $DST_REL" >&2
+      exit 2
+      ;;
+  esac
   if [[ -d "$SRC" ]]; then
     cp -R "$SRC" "$DST"
   else

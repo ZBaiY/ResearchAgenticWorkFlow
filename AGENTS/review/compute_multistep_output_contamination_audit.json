@@ -1,0 +1,115 @@
+{
+  "task_id": "compute_algebraic_multistep_20260217T052850Z",
+  "contamination_classes": {
+    "tool_trace_json_echo": {
+      "observed_markers": [
+        "to=functions.exec_command",
+        "functions.exec_command { ... }",
+        "{ \"tool_uses\": [ { \"recipient_name\": \"functions.exec_command\", ... } ] }"
+      ],
+      "repo_string_hits": [
+        {
+          "path": "AGENTS/review/compute_algebraic_multistep_plan_first_fix.md",
+          "line": 4,
+          "snippet": "... no `Explored`, `functions.exec_command`, ... emitted by `bin/agenthub` schema paths"
+        },
+        {
+          "path": "tests/regression/compute_algebraic_multistep.sh",
+          "line": 14,
+          "snippet": "grep -Eq '(Explored|Search|Read|functions\\.exec_command|\\{|\\})'"
+        }
+      ],
+      "task_output_hits": [],
+      "most_likely_origin": "external_orchestrator",
+      "mechanism_hypothesis": "Markers match tool-runner envelope/debug traces, not CLI/skill business outputs. In-repo runtime emits key=value style markers and plain prompts, and task artifacts for this run contain no such strings.",
+      "confidence": 0.97
+    },
+    "lottery_words": {
+      "observed_markers": [
+        "Reported elsewhere: 彩票/彩票网站/博彩/娱乐"
+      ],
+      "repo_string_hits": [],
+      "task_output_hits": [],
+      "most_likely_origin": "external_orchestrator",
+      "mechanism_hypothesis": "No matching Chinese gambling/website vocabulary appears in repo runtime paths or this task artifacts. If observed in user-visible stream, it is most consistent with contamination outside repo process outputs.",
+      "confidence": 0.7
+    },
+    "garbled_non_english": {
+      "observed_markers": [
+        "Reported elsewhere: non-English/garbled fragments, Arabic-like glyphs"
+      ],
+      "repo_string_hits": [],
+      "task_output_hits": [],
+      "most_likely_origin": "external_orchestrator",
+      "mechanism_hypothesis": "No non-ASCII literal hits were found in `bin/a`, `bin/agenthub`, `bin/ask`, or `AGENTS/skills/compute_algebraic_multistep/**`; this task files also contain no non-ASCII bytes.",
+      "confidence": 0.86
+    }
+  },
+  "plan_mode": {
+    "desired": "After schema completion, multistep enters PLAN-FIRST, writes plan artifacts, stops for user review, and executes only after explicit follow-up command.",
+    "observed": "Current behavior matches PLAN-FIRST on explicit `run`: schema completion stops with `STOP_REASON=request_complete_waiting_user_run`; `agenthub run` generates plan artifacts and returns `PLAN_STATUS=READY_FOR_REVIEW`, `EXECUTION_ALLOWED=false`, `STOP_REASON=need_user_review`. For this task, plan artifacts exist; no staged output dir exists. One minor output issue remains: duplicated PLAN_STATUS/EXECUTION_ALLOWED lines (skill stdout + agenthub re-emit).",
+    "artifacts_found": {
+      "plan_json": "AGENTS/tasks/compute_algebraic_multistep_20260217T052850Z/work/src/plan.json",
+      "report_plan_md": "AGENTS/tasks/compute_algebraic_multistep_20260217T052850Z/work/report_plan.md"
+    },
+    "trigger_points": [
+      {
+        "path": "bin/agenthub",
+        "line": 845,
+        "description": "`request-set` done path emits `STOP_REASON=request_complete_waiting_user_run`; no auto-run at schema completion."
+      },
+      {
+        "path": "bin/agenthub",
+        "line": 1301,
+        "description": "`cmd_run` invokes skill subprocess (`agentctl run ...`) only when user explicitly runs `agenthub run`."
+      },
+      {
+        "path": "AGENTS/skills/compute_algebraic_multistep/scripts/run.sh",
+        "line": 255,
+        "description": "Plan-only branch (`COMPUTE_EXECUTE!=1`) writes plan report and exits with `PLAN_STATUS=READY_FOR_REVIEW`, `EXECUTION_ALLOWED=false`."
+      },
+      {
+        "path": "bin/agenthub",
+        "line": 1317,
+        "description": "Post-skill, agenthub emits plan-review stop markers (`PLAN_STATUS=READY_FOR_REVIEW`, `STOP_REASON=need_user_review`) and returns before staging."
+      },
+      {
+        "path": "tests/regression/compute_algebraic_multistep.sh",
+        "line": 109,
+        "description": "Regression expects plan-only behavior only after explicit `agenthub run`."
+      }
+    ],
+    "divergences": [
+      {
+        "description": "Duplicate plan status markers in user-visible run output (`PLAN_STATUS`/`EXECUTION_ALLOWED` printed by skill and again by agenthub).",
+        "file_line": "AGENTS/skills/compute_algebraic_multistep/scripts/run.sh:257-258; bin/agenthub:1320-1321"
+      },
+      {
+        "description": "Expected staged path for this task is missing because run stopped in plan-review mode before staging (this is consistent with plan-first flow).",
+        "file_line": "bin/agenthub:1325"
+      }
+    ]
+  },
+  "recommended_next_actions": [
+    {
+      "action": "Capture/compare raw terminal transcript from orchestrator boundary (before rendering) to isolate external trace injection points.",
+      "scope": "audit_only",
+      "notes": "Repo/task artifacts do not contain the leaked tool-trace markers; contamination likely occurs in wrapper/UI layer."
+    },
+    {
+      "action": "Add a non-repo integration check that rejects/strips tool-envelope tokens (`to=functions.exec_command`, `recipient_name`, `tool_uses`) from user-visible assistant text.",
+      "scope": "audit_only",
+      "notes": "This targets external orchestration leakage class directly."
+    },
+    {
+      "action": "Add a targeted regression assertion for duplicate plan markers in multistep run output.",
+      "scope": "audit_only",
+      "notes": "Current behavior is functionally correct but noisy; de-duplication would improve output hygiene."
+    },
+    {
+      "action": "If lottery/garbled strings recur, log raw bytes + codepage at wrapper boundary and compare against CLI stdout/stderr captured files.",
+      "scope": "audit_only",
+      "notes": "No in-repo evidence found for these strings in this task."
+    }
+  ]
+}

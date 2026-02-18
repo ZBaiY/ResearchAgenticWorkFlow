@@ -3,15 +3,11 @@ import argparse
 import json
 import os
 import re
-import shlex
 import subprocess
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
-
-AUTO_RUN_ON_START_SKILLS = {"paper_profile_update"}
-
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 def repo_root() -> Path:
     return Path(__file__).resolve().parent.parent
@@ -34,24 +30,114 @@ def load_json(path: Path) -> Dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def tokenize(text: str) -> List[str]:
-    return re.findall(r"[a-z0-9_+\-]+", text.lower())
+STOPWORDS: Set[str] = {
+    "a",
+    "an",
+    "and",
+    "as",
+    "be",
+    "can",
+    "for",
+    "from",
+    "i",
+    "in",
+    "is",
+    "it",
+    "me",
+    "my",
+    "of",
+    "on",
+    "or",
+    "please",
+    "the",
+    "to",
+    "want",
+    "with",
+    "you",
+}
+
+TOKEN_NORMALIZATION = {
+    "algebraically": "algebraic",
+    "symbolically": "symbolic",
+    "numerically": "numerical",
+}
+
+DOMAIN_KEYWORDS = {
+    "compute_algebraic": [
+        "algebraic",
+        "symbolic",
+        "simplify",
+        "derive",
+        "closed-form",
+        "exact",
+        "integrate",
+        "differentiate",
+        "series",
+        "solve",
+        "assumptions",
+        "latex",
+    ],
+    "compute_numerical": [
+        "numerical",
+        "simulate",
+        "approximate",
+        "monte-carlo",
+        "ode",
+        "pde",
+        "optimize",
+        "fit",
+        "plot",
+        "sample",
+        "benchmark",
+        "precision",
+        "tolerance",
+    ],
+    "compute_algebraic_multistep": [
+        "algebraic",
+        "symbolic",
+        "multistep",
+        "plan",
+        "review",
+        "execute",
+        "mathematica",
+        "wolfram",
+        "derive",
+        "simplify",
+    ],
+}
+
+
+def normalize_text(text: str) -> str:
+    lowered = text.lower()
+    cleaned = re.sub(r"[^a-z0-9]+", " ", lowered)
+    raw_tokens = [t for t in cleaned.split() if t]
+    normalized = [TOKEN_NORMALIZATION.get(t, t) for t in raw_tokens]
+    return " ".join(normalized)
+
+
+def tokenize(text: str, *, drop_stopwords: bool = True) -> List[str]:
+    normalized = normalize_text(text)
+    tokens = [t for t in normalized.split() if t]
+    if drop_stopwords:
+        tokens = [t for t in tokens if t not in STOPWORDS]
+    return tokens
+
+
+def tokenize_skill_name(name: str) -> List[str]:
+    parts = re.sub(r"([a-z0-9])([A-Z])", r"\1 \2", name).replace("_", " ").replace("-", " ")
+    return tokenize(parts)
 
 
 def query_matches_skill(skill: Dict[str, Any], query: str) -> List[str]:
     qtokens = tokenize(query)
-    fields = " ".join(
-        [
-            skill.get("name", ""),
-            skill.get("title", ""),
-            skill.get("description", ""),
-            " ".join(skill.get("keywords", []) or []),
-        ]
-    ).lower()
+    fields_tokens = set(tokenize(skill.get("title", ""), drop_stopwords=False))
+    fields_tokens.update(tokenize(skill.get("description", ""), drop_stopwords=False))
+    fields_tokens.update(tokenize(" ".join(skill.get("keywords", []) or []), drop_stopwords=False))
+    fields_tokens.update(tokenize_skill_name(skill.get("name", "")))
     out: List[str] = []
     seen = set()
     for t in qtokens:
-        if t in fields and t not in seen:
+        if t in fields_tokens and t not in seen:
             out.append(t)
             seen.add(t)
     return out[:4]
@@ -68,19 +154,36 @@ def compute_base_score(skill: Dict[str, Any], query: str) -> Tuple[float, List[s
     return score, matches
 
 
+def normalized_keyword_hits(skill_name: str, query: str) -> List[str]:
+    qnorm = normalize_text(query)
+    qtokens = set(tokenize(query))
+    hits: List[str] = []
+    for kw in DOMAIN_KEYWORDS.get(skill_name, []):
+        kwnorm = normalize_text(kw)
+        if not kwnorm:
+            continue
+        if " " in kwnorm:
+            if kwnorm in qnorm:
+                hits.append(kw)
+            continue
+        if kwnorm in qtokens:
+            hits.append(kw)
+    return hits[:6]
+
+
 def apply_router_boosts(
     entries: Dict[str, Dict[str, Any]], query: str, router_cfg: Dict[str, Any]
 ) -> None:
-    q = query.lower()
+    q = normalize_text(query)
     for rule in router_cfg.get("rules", []):
         skill = rule.get("skill", "")
         if skill not in entries:
             continue
         ent = entries[skill]
-        any_keywords = [x.lower() for x in rule.get("any_keywords", []) if isinstance(x, str)]
-        all_keywords = [x.lower() for x in rule.get("all_keywords", []) if isinstance(x, str)]
+        any_keywords = [normalize_text(x) for x in rule.get("any_keywords", []) if isinstance(x, str)]
+        all_keywords = [normalize_text(x) for x in rule.get("all_keywords", []) if isinstance(x, str)]
         negative_keywords = [
-            x.lower() for x in rule.get("negative_keywords", []) if isinstance(x, str)
+            normalize_text(x) for x in rule.get("negative_keywords", []) if isinstance(x, str)
         ]
         boost = float(rule.get("boost", 0.0))
         boost_all = float(rule.get("boost_all", boost))
@@ -93,9 +196,11 @@ def apply_router_boosts(
         if any_hits:
             ent["score"] += boost
             ent["reasons"].extend([f"kw:{k}" for k in any_hits])
+            ent["has_domain_signal"] = True
         if all_keywords and len(all_hits) == len(all_keywords):
             ent["score"] += boost_all
             ent["reasons"].extend([f"all:{k}" for k in all_hits])
+            ent["has_domain_signal"] = True
         if neg_hits:
             ent["score"] -= penalty
             ent["reasons"].extend([f"neg:{k}" for k in neg_hits])
@@ -118,12 +223,15 @@ def build_ranking(root: Path, query: str) -> List[Dict[str, Any]]:
         if not name:
             continue
         base_score, base_terms = compute_base_score(s, query)
+        domain_hits = normalized_keyword_hits(name, query)
+        domain_boost = float(len(domain_hits) * 15)
         entries[name] = {
             "name": name,
             "description": (s.get("description", "") or "").strip(),
             "base_score": base_score,
-            "score": base_score,
-            "reasons": [f"match:{x}" for x in base_terms],
+            "score": base_score + domain_boost,
+            "reasons": [f"match:{x}" for x in base_terms] + [f"domain:{x}" for x in domain_hits],
+            "has_domain_signal": bool(domain_hits),
         }
 
     apply_router_boosts(entries, query, router_cfg)
@@ -163,8 +271,11 @@ def decide_candidates(
     mode = "NORMAL"
     warn_no_match = False
     if best["score"] < t_low:
-        mode = "LOWCONF"
-        warn_no_match = True
+        if best.get("has_domain_signal"):
+            mode = "MEDCONF"
+        else:
+            mode = "LOWCONF"
+            warn_no_match = True
     elif best["score"] >= t_high:
         mode = "HIGHCONF"
 
@@ -221,6 +332,19 @@ def parse_started_task(out: str) -> str:
     return ""
 
 
+def parse_marker(out: str, key: str) -> str:
+    prefix = f"{key}="
+    for line in out.splitlines():
+        text = line.strip()
+        if text.startswith(prefix):
+            return text.split("=", 1)[1].strip()
+    return ""
+
+
+def is_compute_skill(skill: str) -> bool:
+    return str(skill or "").startswith("compute_")
+
+
 def parse_run_artifacts(out: str) -> Dict[str, str]:
     artifacts = {
         "report": "NONE",
@@ -257,7 +381,9 @@ def collect_canonical_inputs(root: Path) -> List[str]:
     return out
 
 
-def write_request_template(root: Path, task_name: str, query: str, full_agent: bool) -> str:
+def write_request_template(
+    root: Path, task_name: str, query: str, full_agent: bool, skill_name: Optional[str] = None
+) -> str:
     req_dir = root / "AGENTS" / "requests"
     req_dir.mkdir(parents=True, exist_ok=True)
     req_path = req_dir / f"{task_name}.md"
@@ -281,17 +407,24 @@ def write_request_template(root: Path, task_name: str, query: str, full_agent: b
             f"{inputs_block}\n"
         )
     else:
-        content = (
-            "# Request\n\n"
-            "Goal:\n"
-            f"{query}\n\n"
-            "Background:\n"
-            "- Auto-generated from bart selection. Refine as needed.\n\n"
-            "Constraints:\n"
-            "- Do not modify USER/ unless explicitly requested.\n\n"
-            "Deliverables:\n"
-            "- A report under AGENTS/tasks/<task_id>/review/.\n"
-        )
+        content = ""
+        if skill_name:
+            template_path = root / "AGENTS" / "skills" / skill_name / "templates" / "request.md"
+            if template_path.exists():
+                content = template_path.read_text(encoding="utf-8")
+                content = content.replace("{{GOAL}}", query)
+        if not content.strip():
+            content = (
+                "# Request\n\n"
+                "Goal:\n"
+                f"{query}\n\n"
+                "Background:\n"
+                "- Auto-generated from bart selection. Refine as needed.\n\n"
+                "Constraints:\n"
+                "- Do not modify USER/ unless explicitly requested.\n\n"
+                "Deliverables:\n"
+                "- A report under AGENTS/tasks/<task_id>/review/.\n"
+            )
 
     req_path.write_text(content, encoding="utf-8")
     return str(req_path.relative_to(root))
@@ -331,12 +464,9 @@ def print_suggestions(query: str, decision: Dict[str, Any], k: Optional[int]) ->
             "Consider rephrasing or using --skill."
         )
 
-    print("Pick required: yes")
-    escaped = query.replace('"', '\\"')
-    print("Next:")
-    print(f'  ./bart "{escaped}" --pick 1 --start')
+    print("PICK_REQUIRED=true")
     if best:
-        print(f'  ./bart "{escaped}" --skill {best} --start')
+        print(f"RECOMMENDED_SKILL={best}")
 
 
 def run_full_agent(
@@ -363,7 +493,7 @@ def run_full_agent(
     ).stdout
     task_name = parse_task_name(task_name_out) or f"{selected}_{utc_compact()}"
 
-    req_rel = write_request_template(root, task_name, query, full_agent=True)
+    req_rel = write_request_template(root, task_name, query, full_agent=True, skill_name=selected)
     start_cmd = [
         str(root / "bin" / "agenthub"),
         "start",
@@ -540,11 +670,13 @@ def main() -> int:
         if not task_name:
             raise RuntimeError("unable to generate task name")
 
-        req_rel = write_request_template(root, task_name, query, full_agent=False)
+        req_rel = write_request_template(root, task_name, query, full_agent=False, skill_name=selected)
 
         print(f"Selected skill: {selected}")
         print(f"Task name: {task_name}")
         print(f"Request template: {req_rel}")
+        print(f"SELECTED_SKILL={selected}")
+        print(f"TASK_NAME={task_name}")
 
         start_cmd = [
             str(root / "bin" / "agenthub"),
@@ -558,10 +690,14 @@ def main() -> int:
         ]
 
         if not args.start and not args.run:
-            pretty = " ".join(shlex.quote(x) for x in start_cmd)
-            pretty = pretty.replace(str(root) + "/", "./")
-            print("Next:")
-            print(f"  {pretty}")
+            if is_compute_skill(selected):
+                start_out = run_checked(start_cmd, cwd=root).stdout.strip()
+                if start_out:
+                    print(start_out)
+                return 0
+            print("START_PENDING=true")
+            print(f"SELECTED_SKILL={selected}")
+            print(f"TASK_NAME={task_name}")
             return 0
 
         start_out = run_checked(start_cmd, cwd=root).stdout.strip()
@@ -570,13 +706,22 @@ def main() -> int:
         started_task = parse_started_task(start_out) or task_name
 
         if not args.run:
-            if args.yes:
-                print(f"NEXT_RUN=./bin/agenthub run --task {started_task} --yes")
-            elif args.no:
-                print(f"NEXT_RUN=./bin/agenthub run --task {started_task} --no")
-            else:
-                print(f"NEXT_RUN=./bin/agenthub run --task {started_task} --no")
+            if is_compute_skill(selected):
+                return 0
+            print("STATE=AWAITING_USER_CONFIRMATION")
+            print(f"TASK={started_task}")
+            print("Run completed setup only. Awaiting explicit user confirmation to execute run.")
             return 0
+
+        if is_compute_skill(selected):
+            request_complete = parse_marker(start_out, "REQUEST_COMPLETE").lower()
+            if request_complete == "false":
+                request_step = parse_marker(start_out, "REQUEST_STEP") or "goal"
+                print("STARTED=true")
+                print("REQUEST_COMPLETE=false")
+                print(f"REQUEST_STEP={request_step}")
+                print("STOP_REASON=need_user_input")
+                return 0
 
         run_cmd = [str(root / "bin" / "agenthub"), "run", "--task", started_task]
         if args.yes:
@@ -587,9 +732,6 @@ def main() -> int:
             # Safe default: non-interactive approval mode is --no.
             run_cmd.append("--no")
 
-        run_cmd_pretty = " ".join(shlex.quote(x) for x in run_cmd)
-        run_cmd_pretty = run_cmd_pretty.replace(str(root) + "/", "./")
-        print(f"RUN_COMMAND={run_cmd_pretty}")
         sys.stdout.flush()
         cp = subprocess.run(run_cmd, cwd=str(root), text=True)
         return cp.returncode

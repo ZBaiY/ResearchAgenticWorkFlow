@@ -72,9 +72,8 @@ else
   echo "BOOTSTRAP=index_fresh"
 fi
 
-echo "NEXT=./bin/ask \"your request\""
-echo "ALT=./bin/agenthub suggest \"your request\""
-echo "EXAMPLE=./bin/ask \"rewrite Floquet section for PRL clarity\""
+echo "ROUTER_READY=true"
+echo "WORKFLOW_MODE=manual_dispatch"
 echo "REPO_ROOT=$ROOT"
 
 if [[ "$NO_LAUNCH" -eq 1 ]]; then

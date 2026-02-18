@@ -1,6 +1,6 @@
 name: compute_numerical
-title: Numerical Compute (Python)
-description: Run numerical computations in Python with reproducibility logs and export-on-consent flow.
+title: Compute Numerical (Python)
+description: Run deterministic numerical computations from a structured request and stage outputs to GATE.
 run: scripts/run.sh
 prompt: prompts/prompt.md
 schema: schemas/schema.json
@@ -8,13 +8,18 @@ keywords:
   - compute
   - numerical
   - python
-  - sanity checks
+  - simulation
+  - plotting
+  - statistics
 outputs:
-  - review: "AGENTS/tasks/<task_id>/review/compute_numerical_report.md"
-  - patch: "AGENTS/tasks/<task_id>/deliverable/patchset/patch.diff"
+  - report: "AGENTS/tasks/<task_id>/work/report.md"
+  - code: "AGENTS/tasks/<task_id>/work/src/main.py"
+  - figures: "AGENTS/tasks/<task_id>/work/fig/"
 requires_network: false
 preferred_runner:
   - codex
 risk: medium
+clarification_policy: auto
 confirmations:
-  - Executes Python code in task sandbox and may prompt for source export.
+  - Run generates artifacts under AGENTS/tasks/<task_id>/work and stages to GATE.
+  - Promotion remains explicit and separate.

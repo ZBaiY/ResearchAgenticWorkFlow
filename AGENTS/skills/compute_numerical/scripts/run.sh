@@ -4,8 +4,6 @@ set -euo pipefail
 ROOT="${1:-}"
 TASK_ID="${2:-}"
 SKILL="compute_numerical"
-BACKEND="python"
-APPROVAL_SH="$ROOT/AGENTS/runtime/approval.sh"
 
 if [[ -z "$ROOT" || -z "$TASK_ID" ]]; then
   echo "Usage: run.sh <repo_root> <task_id>" >&2
@@ -13,342 +11,346 @@ if [[ -z "$ROOT" || -z "$TASK_ID" ]]; then
 fi
 
 TDIR="$ROOT/AGENTS/tasks/$TASK_ID"
-WORK_COMPUTE="$TDIR/work/compute"
-SCRATCH="$WORK_COMPUTE/scratch"
-RUN_DIR="$WORK_COMPUTE/run"
-OUTPUTS="$TDIR/outputs/compute"
-LOGS="$TDIR/logs/compute"
+REQ_PATH="$TDIR/request.md"
+REQ_JSON="$TDIR/request.json"
 REVIEW_DIR="$TDIR/review"
-DELIV_SRC="$TDIR/deliverable/src"
-DELIV_PROMO="$TDIR/deliverable/promotion_instructions.md"
-RESULT_JSON="$OUTPUTS/result.json"
-HASHES_JSON="$LOGS/hashes.json"
-CONSENT_JSON="$LOGS/consent.json"
-RESOLVED_JSON="$LOGS/resolved_request.json"
-ENV_JSON="$LOGS/env.json"
-REPORT="$REVIEW_DIR/compute_numerical_report.md"
-SPEC_FILE="$WORK_COMPUTE/spec.yaml"
-CMD_LOG="$LOGS/commands.txt"
-STDOUT_LOG="$LOGS/stdout.log"
-STDERR_LOG="$LOGS/stderr.log"
+NEED_INPUT_MD="$REVIEW_DIR/need_input.md"
+WORK_DIR="$TDIR/work"
+SRC_DIR="$WORK_DIR/src"
+OUT_DIR="$WORK_DIR/out"
+ART_DIR="$OUT_DIR/artifacts"
+FIG_DIR="$WORK_DIR/fig"
+REPORT_PATH="$WORK_DIR/report.md"
+STDOUT_PATH="$OUT_DIR/stdout.txt"
+STDERR_PATH="$OUT_DIR/stderr.txt"
+INPUTS_JSON="$ART_DIR/inputs.json"
+RESULT_JSON="$ART_DIR/result.json"
+MAIN_PY="$SRC_DIR/main.py"
+REQ_TXT="$ART_DIR/request_verbatim.txt"
 
 if [[ ! -d "$TDIR" ]]; then
   echo "Task folder does not exist: $TDIR" >&2
   exit 2
 fi
+if [[ ! -f "$REQ_JSON" ]]; then
+  mkdir -p "$REVIEW_DIR"
+  cat > "$NEED_INPUT_MD" <<EOF
+# Input Needed
 
-source "$APPROVAL_SH"
+- task_id: $TASK_ID
+- skill: $SKILL
+- request_complete: false
+- request_step: goal
 
-mkdir -p "$SCRATCH" "$RUN_DIR" "$OUTPUTS" "$LOGS" "$REVIEW_DIR" "$TDIR/deliverable"
-: > "$CMD_LOG"
-: > "$STDOUT_LOG"
-: > "$STDERR_LOG"
+## Next question (English)
+What is the goal of this computation? (Describe in natural language; you can be detailed.)
+EOF
+  mkdir -p "$WORK_DIR"
+  cat > "$REPORT_PATH" <<EOF
+# Compute Numerical Report
 
-exec >> "$STDOUT_LOG" 2>> "$STDERR_LOG"
+## Problem statement (verbatim from request.md)
+request.json is missing.
 
-log_cmd() { printf '%s\n' "$*" >> "$CMD_LOG"; }
-sha() {
-  if [[ -f "$1" ]]; then
-    shasum -a 256 "$1" | awk '{print $1}'
-  else
-    echo ""
-  fi
-}
+## Method / derivation / algorithm
+Run aborted because request schema is incomplete.
 
-cat > "$SPEC_FILE" <<EOF2
-{
-  "task_id": "$TASK_ID",
-  "skill": "$SKILL",
-  "backend": "$BACKEND",
-  "params": {
-    "alpha": 1.25,
-    "beta": 0.75,
-    "grid": [0, 1, 2, 3, 4, 5],
-    "rtol": 1e-8,
-    "atol": 1e-10,
-    "keep_intermediates": false
-  }
-}
-EOF2
-cp "$SPEC_FILE" "$RESOLVED_JSON"
+## Code layout
+(not generated)
 
-cat > "$SCRATCH/main.py" <<'EOF2'
-#!/usr/bin/env python3
-"""Numerical demo compute: linear transform over a small grid.
-
-Writes structured result JSON with sanity checks and diagnostics.
-"""
-import json
-import math
-import os
-from pathlib import Path
-
-spec = json.loads(Path(os.environ["SPEC_PATH"]).read_text(encoding="utf-8"))
-params = spec["params"]
-alpha = float(params["alpha"])
-beta = float(params["beta"])
-grid = [float(x) for x in params["grid"]]
-
-values = [alpha * x + beta for x in grid]
-finite = all(math.isfinite(v) for v in values)
-monotone = all(values[i] <= values[i + 1] for i in range(len(values) - 1))
-mean_v = (sum(values) / len(values)) if values else None
-
-payload = {
-    "meta": {
-        "task_id": spec["task_id"],
-        "skill": spec["skill"],
-        "backend": spec["backend"],
-        "timestamp_utc": os.environ.get("RUN_TIMESTAMP", ""),
-        "status": "ok",
-    },
-    "params": {
-        "alpha": alpha,
-        "beta": beta,
-        "rtol": params.get("rtol"),
-        "atol": params.get("atol"),
-    },
-    "results": {
-        "summary": "Computed affine transform over grid.",
-        "grid": grid,
-        "values": values,
-        "mean": mean_v,
-    },
-    "sanity_checks": [
-        {"name": "length_match", "pass": len(grid) == len(values), "value": len(values), "note": "grid/value lengths"},
-        {"name": "finite_values", "pass": finite, "value": finite, "note": "all outputs finite"},
-        {"name": "monotonic_values", "pass": monotone, "value": monotone, "note": "expected with positive alpha"},
-    ],
-    "diagnostics": {
-        "convergence": "not_applicable",
-        "stability": {
-            "rtol": params.get("rtol"),
-            "atol": params.get("atol"),
-            "note": "deterministic closed-form evaluation",
-        },
-    },
-}
-
-out = Path(os.environ["RESULT_PATH"])
-out.parent.mkdir(parents=True, exist_ok=True)
-out.write_text(json.dumps(payload, indent=2), encoding="utf-8")
-EOF2
-chmod +x "$SCRATCH/main.py"
-
-log_cmd "cp $SCRATCH/main.py $RUN_DIR/main.py"
-cp "$SCRATCH/main.py" "$RUN_DIR/main.py"
-
-PY_BIN=""
-if command -v python3 >/dev/null 2>&1; then
-  PY_BIN="python3"
-elif command -v python >/dev/null 2>&1; then
-  PY_BIN="python"
-fi
-
-RUN_TS="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
-cat > "$ENV_JSON" <<EOF2
-{
-  "task_id": "$TASK_ID",
-  "skill": "$SKILL",
-  "backend": "$BACKEND",
-  "timestamp_utc": "$RUN_TS",
-  "python": "$( [[ -n "$PY_BIN" ]] && $PY_BIN --version 2>&1 | head -n 1 || echo unavailable )",
-  "wolframscript": "$( command -v wolframscript >/dev/null 2>&1 && wolframscript -version 2>&1 | head -n 1 || echo unavailable )"
-}
-EOF2
-
-STATUS="ok"
-if [[ -z "$PY_BIN" ]]; then
-  STATUS="backend_unavailable"
-  cat > "$RESULT_JSON" <<EOF2
-{
-  "meta": {
-    "task_id": "$TASK_ID",
-    "skill": "$SKILL",
-    "backend": "$BACKEND",
-    "timestamp_utc": "$RUN_TS",
-    "status": "backend_unavailable"
-  },
-  "params": {"note": "python backend missing"},
-  "results": {"summary": "No computation executed."},
-  "sanity_checks": [
-    {"name": "backend_available", "pass": false, "value": false, "note": "python3/python not found"}
-  ],
-  "diagnostics": {"convergence": "not_run", "stability": "not_run"}
-}
-EOF2
-  log_cmd "backend unavailable: python3/python not found"
-else
-  log_cmd "cd $RUN_DIR && SPEC_PATH=$SPEC_FILE RESULT_PATH=$RESULT_JSON RUN_TIMESTAMP=$RUN_TS $PY_BIN main.py"
-  set +e
-  (cd "$RUN_DIR" && SPEC_PATH="$SPEC_FILE" RESULT_PATH="$RESULT_JSON" RUN_TIMESTAMP="$RUN_TS" "$PY_BIN" main.py)
-  RC=$?
-  set -e
-  if [[ "$RC" -ne 0 || ! -f "$RESULT_JSON" ]]; then
-    STATUS="failed"
-    cat > "$RESULT_JSON" <<EOF2
-{
-  "meta": {
-    "task_id": "$TASK_ID",
-    "skill": "$SKILL",
-    "backend": "$BACKEND",
-    "timestamp_utc": "$RUN_TS",
-    "status": "failed"
-  },
-  "params": {"note": "execution failed"},
-  "results": {"summary": "Computation failed; inspect logs."},
-  "sanity_checks": [
-    {"name": "run_exit_zero", "pass": false, "value": $RC, "note": "python run failed"}
-  ],
-  "diagnostics": {"convergence": "unknown", "stability": "unknown"}
-}
-EOF2
-  fi
-fi
-
-RESP=""
-EXPORTED=false
-if rg -q '"status": "ok"' "$RESULT_JSON"; then
-  if approval_confirm "Compute succeeded. Export a cleaned, commented program into deliverable/src? (y/N) "; then
-    RESP="y"
-    EXPORTED=true
-    mkdir -p "$DELIV_SRC"
-    cat > "$DELIV_SRC/main.py" <<'EOF2'
-#!/usr/bin/env python3
-"""Numerical compute example (exported clean source).
-
-This program evaluates an affine model over a configured grid and writes result JSON.
-Edit parameters in the SPEC_PATH file to play around.
-"""
-import json
-import math
-import os
-from pathlib import Path
-
-spec = json.loads(Path(os.environ["SPEC_PATH"]).read_text(encoding="utf-8"))
-params = spec["params"]
-alpha = float(params["alpha"])
-beta = float(params["beta"])
-grid = [float(x) for x in params["grid"]]
-
-# Core numerical model.
-values = [alpha * x + beta for x in grid]
-finite = all(math.isfinite(v) for v in values)
-
-payload = {
-    "meta": spec,
-    "params": params,
-    "results": {
-        "summary": "Affine numerical scan",
-        "grid": grid,
-        "values": values,
-        "mean": (sum(values) / len(values)) if values else None,
-    },
-    "sanity_checks": [
-        {"name": "length_match", "pass": len(grid) == len(values), "value": len(values), "note": "grid/value lengths"},
-        {"name": "finite_values", "pass": finite, "value": finite, "note": "all outputs finite"},
-    ],
-    "diagnostics": {
-        "convergence": "not_applicable",
-        "stability": {"tolerance_hint": [params.get("rtol"), params.get("atol")]},
-    },
-}
-
-out = Path(os.environ.get("RESULT_PATH", "result.json"))
-out.write_text(json.dumps(payload, indent=2), encoding="utf-8")
-EOF2
-    chmod +x "$DELIV_SRC/main.py"
-    cat > "$DELIV_SRC/README.md" <<EOF2
-# Numerical Compute Program
-
-This program computes a simple affine numerical scan over a grid and records sanity checks plus stability notes.
-
-## Run
-\`SPEC_PATH=AGENTS/tasks/$TASK_ID/work/compute/spec.yaml RESULT_PATH=AGENTS/tasks/$TASK_ID/outputs/compute/result.json python3 AGENTS/tasks/$TASK_ID/deliverable/src/main.py\`
+## Repro command
+(not executed)
 
 ## Inputs
-- \`AGENTS/tasks/$TASK_ID/work/compute/spec.yaml\`
+(missing request.json)
 
 ## Outputs
-- \`AGENTS/tasks/$TASK_ID/outputs/compute/result.json\`
-- optional \`tables/*.csv\` and \`fig/*\` if added later
+- status: paused
+- reason: request.json missing
 
-## Tolerances / stability checks
-- Adjust \`params.rtol\` and \`params.atol\` in \`spec.yaml\`.
+## Figures
+(none)
 
-## Play around
-- Edit \`params.alpha\`, \`params.beta\`, and \`params.grid\` in \`spec.yaml\`.
-EOF2
-  else
-    RESP="n"
-    rm -rf "$DELIV_SRC"
-  fi
-else
-  RESP=""
+## Runtime metadata
+- timestamp_utc: $(date -u +"%Y-%m-%dT%H:%M:%SZ")
+- python_version: $(python3 --version 2>&1 | tr -d '\r')
+EOF
+  echo "REQUEST_COMPLETE=false"
+  echo "REQUEST_STEP=goal"
+  echo "RUN_STATUS=PAUSED_FOR_INPUT"
+  echo "NEED_INPUT_PATH=AGENTS/tasks/$TASK_ID/review/need_input.md"
+  exit 0
 fi
 
-cat > "$CONSENT_JSON" <<EOF2
-{
-  "exported_source": $EXPORTED,
-  "user_response": "$(printf '%s' "$RESP" | tr '[:upper:]' '[:lower:]')",
-  "timestamp_utc": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
-}
-EOF2
+mkdir -p "$SRC_DIR" "$OUT_DIR" "$ART_DIR" "$FIG_DIR"
 
-cat > "$DELIV_PROMO" <<EOF2
-# Promotion Instructions
+set +e
+REQ_PATH_ENV="$REQ_PATH" REQ_JSON_ENV="$REQ_JSON" INPUTS_JSON_ENV="$INPUTS_JSON" REQ_TXT_ENV="$REQ_TXT" python3 - <<'PY'
+import json
+import os
+from pathlib import Path
 
-Agents cannot write to USER directly.
+req_path = Path(os.environ["REQ_PATH_ENV"])
+req_json = Path(os.environ["REQ_JSON_ENV"])
+text = req_path.read_text(encoding="utf-8") if req_path.exists() else "(request.md not present)"
+payload = json.loads(req_json.read_text(encoding="utf-8"))
+required = ["goal", "inputs", "expected_outputs", "constraints", "preferred_formats"]
+missing = []
+for key in required:
+    if key not in payload:
+        missing.append(key)
+if missing:
+    raise SystemExit(f"request.json missing required keys: {missing}")
+if not str(payload.get("goal", "")).strip():
+    raise SystemExit("request.json goal must be non-empty")
+if not isinstance(payload.get("inputs"), dict) or len(payload.get("inputs", {})) == 0:
+    raise SystemExit("request.json inputs must be a non-empty object")
+if not isinstance(payload.get("expected_outputs"), dict) or len(payload.get("expected_outputs", {})) == 0:
+    raise SystemExit("request.json expected_outputs must be a non-empty object")
+if not isinstance(payload.get("constraints"), list) or len(payload.get("constraints", [])) == 0:
+    raise SystemExit("request.json constraints must be a non-empty array")
+if not isinstance(payload.get("preferred_formats"), list) or len(payload.get("preferred_formats", [])) == 0:
+    raise SystemExit("request.json preferred_formats must be a non-empty array")
+Path(os.environ["INPUTS_JSON_ENV"]).write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+Path(os.environ["REQ_TXT_ENV"]).write_text(text, encoding="utf-8")
+PY
+VALIDATE_RC=$?
+set -e
 
-If exported source exists, manually promote with:
+if [[ "$VALIDATE_RC" -ne 0 || ! -f "$INPUTS_JSON" ]]; then
+  mkdir -p "$REVIEW_DIR"
+  cat > "$NEED_INPUT_MD" <<EOF
+# Input Needed
 
-\`cp -r AGENTS/tasks/$TASK_ID/deliverable/src USER/src/compute/$TASK_ID/\`
+- task_id: $TASK_ID
+- skill: $SKILL
+- request_complete: false
+- request_step: goal
 
-Recommended destination:
-- \`USER/src/compute/$TASK_ID/\`
+## Next question (English)
+What is the goal of this computation? (Describe in natural language; you can be detailed.)
+EOF
+  cat > "$REPORT_PATH" <<EOF
+# Compute Numerical Report
 
-If export was declined, rerun and answer \`y\` to generate \`deliverable/src\`.
-EOF2
+## Problem statement (verbatim from request.md)
+$(cat "$REQ_TXT" 2>/dev/null || true)
 
-{
-  echo "{"
-  echo "  \"generated_at_utc\": \"$(date -u +"%Y-%m-%dT%H:%M:%SZ")\","
-  echo "  \"inputs\": ["
-  echo "    {\"path\": \"$SPEC_FILE\", \"sha256\": \"$(sha "$SPEC_FILE")\"}"
-  echo "  ],"
-  echo "  \"outputs\": ["
-  echo "    {\"path\": \"$RESULT_JSON\", \"sha256\": \"$(sha "$RESULT_JSON")\"},"
-  echo "    {\"path\": \"$CONSENT_JSON\", \"sha256\": \"$(sha "$CONSENT_JSON")\"}"
-  echo "  ]"
-  echo "}"
-} > "$HASHES_JSON"
+## Method / derivation / algorithm
+Run aborted because request schema is incomplete.
 
-RESULT_STATUS="$(sed -n 's/^[[:space:]]*"status":[[:space:]]*"\([^"]*\)".*/\1/p' "$RESULT_JSON" | head -n 1)"
-if [[ "$RESULT_STATUS" == "ok" ]]; then
-  # Cleanup byproducts on successful runs; keep outputs/logs.
-  rm -rf "$RUN_DIR/__pycache__" "$RUN_DIR/.ipynb_checkpoints"
-  find "$RUN_DIR" -type f \( -name '*.tmp' -o -name '*.bak' \) -delete || true
-  find "$SCRATCH" -mindepth 1 -delete || true
-  CLEANUP_NOTE="transient byproducts cleaned"
-else
-  CLEANUP_NOTE="run failed or backend unavailable; preserved scratch/run for forensics"
+## Code layout
+(not generated)
+
+## Repro command
+(not executed)
+
+## Inputs
+(invalid request.json)
+
+## Outputs
+- status: paused
+- reason: request.json missing required fields or non-empty values
+
+## Figures
+(none)
+
+## Runtime metadata
+- timestamp_utc: $(date -u +"%Y-%m-%dT%H:%M:%SZ")
+- python_version: $(python3 --version 2>&1 | tr -d '\r')
+EOF
+  echo "REQUEST_COMPLETE=false"
+  echo "REQUEST_STEP=goal"
+  echo "RUN_STATUS=PAUSED_FOR_INPUT"
+  echo "NEED_INPUT_PATH=AGENTS/tasks/$TASK_ID/review/need_input.md"
+  exit 0
 fi
 
-{
-  echo "# compute_numerical Report"
-  echo
-  echo "- task_id: $TASK_ID"
-  echo "- backend: $BACKEND"
-  echo "- status: $RESULT_STATUS"
-  echo "- exported_source: $EXPORTED"
-  echo "- cleanup: $CLEANUP_NOTE"
-  echo
-  echo "## Paths"
-  echo "- spec: AGENTS/tasks/$TASK_ID/work/compute/spec.yaml"
-  echo "- result: AGENTS/tasks/$TASK_ID/outputs/compute/result.json"
-  echo "- logs: AGENTS/tasks/$TASK_ID/logs/compute/"
-} > "$REPORT"
+cat > "$MAIN_PY" <<'PY'
+#!/usr/bin/env python3
+"""Generated numerical compute program.
+
+Implements:
+- parse_inputs()
+- compute()
+- emit_outputs()
+"""
+
+import argparse
+import json
+from pathlib import Path
+
+
+def parse_inputs(path: str) -> dict:
+    return json.loads(Path(path).read_text(encoding="utf-8"))
+
+
+def compute(payload: dict) -> dict:
+    inputs = payload.get("inputs", {})
+    x_values = inputs.get("x_values", [-3, -2, -1, 0, 1, 2, 3])
+    coeffs = inputs.get("coefficients", {})
+    a = float(coeffs.get("a", 1.0))
+    b = float(coeffs.get("b", 0.0))
+    c = float(coeffs.get("c", 0.0))
+    y_values = [a * (float(x) ** 2.0) + b * float(x) + c for x in x_values]
+    return {
+        "mode": str(inputs.get("mode", "quadratic_scan")),
+        "parameters": {"a": a, "b": b, "c": c},
+        "series": [{"x": float(x), "y": float(y)} for x, y in zip(x_values, y_values)],
+        "summary": {
+            "count": len(y_values),
+            "min_y": min(y_values) if y_values else None,
+            "max_y": max(y_values) if y_values else None,
+            "mean_y": (sum(y_values) / len(y_values)) if y_values else None,
+        },
+        "plot_requested": bool(inputs.get("make_plot", False)),
+    }
+
+
+def emit_outputs(payload: dict, result: dict, result_path: str, fig_dir: str) -> list:
+    out = {
+        "goal": payload.get("goal", ""),
+        "inputs": payload.get("inputs", {}),
+        "expected_outputs": payload.get("expected_outputs", {}),
+        "result": result,
+    }
+    result_file = Path(result_path)
+    result_file.parent.mkdir(parents=True, exist_ok=True)
+    result_file.write_text(json.dumps(out, indent=2, sort_keys=True), encoding="utf-8")
+
+    figs = []
+    if result.get("plot_requested", False):
+        try:
+            import matplotlib.pyplot as plt  # type: ignore
+        except Exception as exc:
+            out["plot_warning"] = f"plot skipped: matplotlib unavailable ({exc})"
+            result_file.write_text(json.dumps(out, indent=2, sort_keys=True), encoding="utf-8")
+            return figs
+        fig_path = Path(fig_dir) / "quadratic_scan.png"
+        fig_path.parent.mkdir(parents=True, exist_ok=True)
+        xs = [item["x"] for item in result["series"]]
+        ys = [item["y"] for item in result["series"]]
+        plt.figure(figsize=(6, 4))
+        plt.plot(xs, ys, marker="o")
+        plt.title("Quadratic Scan")
+        plt.xlabel("x")
+        plt.ylabel("y")
+        plt.grid(True, alpha=0.3)
+        plt.tight_layout()
+        plt.savefig(fig_path)
+        plt.close()
+        figs.append(str(fig_path))
+    return figs
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--inputs", required=True)
+    parser.add_argument("--result", required=True)
+    parser.add_argument("--fig-dir", required=True)
+    args = parser.parse_args()
+
+    payload = parse_inputs(args.inputs)
+    result = compute(payload)
+    figs = emit_outputs(payload, result, args.result, args.fig_dir)
+
+    print(f"mode={result.get('mode')}")
+    print(f"count={result.get('summary', {}).get('count')}")
+    print(f"result_json={args.result}")
+    if figs:
+        print(f"figures={','.join(figs)}")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
+PY
+
+chmod +x "$MAIN_PY"
+
+REPRO_CMD="python3 AGENTS/tasks/$TASK_ID/work/src/main.py --inputs AGENTS/tasks/$TASK_ID/work/out/artifacts/inputs.json --result AGENTS/tasks/$TASK_ID/work/out/artifacts/result.json --fig-dir AGENTS/tasks/$TASK_ID/work/fig"
+mkdir -p "$ART_DIR/mplconfig"
+set +e
+MPLBACKEND=Agg MPLCONFIGDIR="$ART_DIR/mplconfig" \
+  python3 "$MAIN_PY" --inputs "$INPUTS_JSON" --result "$RESULT_JSON" --fig-dir "$FIG_DIR" >"$STDOUT_PATH" 2>"$STDERR_PATH"
+RUN_RC=$?
+set -e
+
+TS="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+PY_VER="$(python3 --version 2>&1 | tr -d '\r')"
+MPL_VER="$(python3 - <<'PY'
+try:
+    import matplotlib  # type: ignore
+    print(matplotlib.__version__)
+except Exception:
+    print("not-installed")
+PY
+)"
+FIG_LIST="$(find "$FIG_DIR" -maxdepth 1 -type f | sort | sed "s#^$ROOT/##")"
+[[ -n "$FIG_LIST" ]] || FIG_LIST="(none)"
+
+RESULT_PREVIEW="(missing)"
+if [[ -f "$RESULT_JSON" ]]; then
+  RESULT_PREVIEW="$(python3 - <<PY
+import json
+from pathlib import Path
+obj = json.loads(Path("$RESULT_JSON").read_text(encoding="utf-8"))
+print(json.dumps(obj.get("result", {}).get("summary", {}), indent=2, sort_keys=True))
+PY
+)"
+fi
+
+cat > "$REPORT_PATH" <<EOF
+# Compute Numerical Report
+
+## Problem statement (verbatim from request.md)
+--- BEGIN REQUEST ---
+$(cat "$REQ_TXT")
+--- END REQUEST ---
+
+## Method / derivation / algorithm
+- Parse structured JSON inputs from request.md.
+- Evaluate a deterministic quadratic scan y = a*x^2 + b*x + c over provided x_values.
+- Emit structured JSON outputs and optional matplotlib figure.
+
+## Code layout
+- AGENTS/tasks/$TASK_ID/work/src/main.py
+- AGENTS/tasks/$TASK_ID/work/out/artifacts/inputs.json
+- AGENTS/tasks/$TASK_ID/work/out/artifacts/result.json
+- AGENTS/tasks/$TASK_ID/work/out/stdout.txt
+- AGENTS/tasks/$TASK_ID/work/out/stderr.txt
+- AGENTS/tasks/$TASK_ID/work/fig/
+
+## Repro command
+--- BEGIN COMMAND ---
+$REPRO_CMD
+--- END COMMAND ---
+
+## Inputs
+--- BEGIN INPUTS ---
+$(cat "$INPUTS_JSON")
+--- END INPUTS ---
+
+## Outputs
+- Run exit code: $RUN_RC
+- Result file: AGENTS/tasks/$TASK_ID/work/out/artifacts/result.json
+--- BEGIN RESULT SUMMARY ---
+$RESULT_PREVIEW
+--- END RESULT SUMMARY ---
+
+## Figures
+$FIG_LIST
+
+## Runtime metadata
+- timestamp_utc: $TS
+- python_version: $PY_VER
+- matplotlib_version: $MPL_VER
+EOF
+
+if [[ "$RUN_RC" -ne 0 ]]; then
+  echo "Numerical compute failed. See $STDERR_PATH" >&2
+  exit 2
+fi
 
 bash "$ROOT/AGENTS/runtime/stage_to_gate.sh" "$ROOT" "$TASK_ID" "$SKILL"
-
-exit 0
+echo "$SKILL completed for task $TASK_ID"

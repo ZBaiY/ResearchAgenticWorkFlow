@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 import argparse
+import hmac
 import json
 import os
 import re
+import secrets
 import subprocess
 import sys
 import time
@@ -10,7 +12,7 @@ import traceback
 from datetime import datetime, timezone
 from json import JSONDecodeError
 from pathlib import Path
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 
 def now_utc() -> str:
@@ -67,6 +69,166 @@ class SkillSubprocessError(RuntimeError):
         self.returncode = returncode
         self.stdout = stdout
         self.stderr = stderr
+
+
+TOOL_TRACE_PATTERNS = [
+    re.compile(r"functions\.exec_command"),
+    re.compile(r"to=functions\.exec_command"),
+    re.compile(r"\brecipient_name\b"),
+    re.compile(r"\btool_uses\b"),
+]
+NON_BUSINESS_BLOCKLIST = ["彩票", "博彩", "娱乐平台", "网站"]
+
+
+def write_trace_debug_line(root: Path, task_id: str, line: str, reason: str) -> None:
+    try:
+        review_dir = tasks_dir(root) / task_id / "review"
+        review_dir.mkdir(parents=True, exist_ok=True)
+        out = review_dir / "trace_debug.log"
+        with out.open("a", encoding="utf-8") as handle:
+            handle.write(f"{now_utc()} [{reason}] {line}\n")
+    except Exception:
+        return
+
+
+def sanitize_user_lines(root: Path, task_id: str, raw: str) -> str:
+    if not raw:
+        return ""
+    kept: List[str] = []
+    for line in raw.splitlines():
+        stripped = line.strip()
+        drop_reason = ""
+        if any(p.search(line) for p in TOOL_TRACE_PATTERNS):
+            drop_reason = "tool_trace"
+        elif any(w in line for w in NON_BUSINESS_BLOCKLIST):
+            drop_reason = "non_business"
+        elif any(ord(ch) > 127 for ch in line):
+            drop_reason = "non_ascii"
+        elif stripped.startswith("{") or stripped.startswith("}"):
+            if any(key in line for key in ("tool_uses", "recipient_name", "functions.exec_command")):
+                drop_reason = "tool_json"
+        if drop_reason:
+            write_trace_debug_line(root, task_id, line, drop_reason)
+            continue
+        kept.append(line)
+    return "\n".join(kept).strip()
+
+
+COMPUTE_REQUEST_REQUIRED_FIELDS = [
+    "goal",
+    "inputs",
+    "expected_outputs",
+    "constraints",
+    "preferred_formats",
+]
+
+COMPUTE_REQUEST_STEPS = ["goal", "inputs", "expected_outputs", "constraints", "preferred_formats", "done"]
+MULTISTEP_POLICY_STEPS = [
+    "policy_customize",
+    "policy_max_steps",
+    "policy_time_limit_sec_per_step",
+    "policy_max_leaf_count",
+    "policy_overrides",
+]
+MULTISTEP_POLICY_FIELDS = [
+    "policy_customize",
+    "policy_max_steps",
+    "policy_time_limit_sec_per_step",
+    "policy_max_leaf_count",
+    "policy_overrides",
+]
+MULTISTEP_REQUEST_FIELDS = COMPUTE_REQUEST_REQUIRED_FIELDS + MULTISTEP_POLICY_FIELDS
+SUPPORTED_REQUEST_SKILLS = {"compute_numerical", "compute_algebraic", "compute_algebraic_multistep"}
+MULTISTEP_POLICY_DEFAULTS: Dict[str, Any] = {
+    "max_steps": 8,
+    "time_limit_sec_per_step": 10,
+    "max_leaf_count": 50000,
+    "assumptions": "",
+    "check_level": "equivalence",
+    "allowlist_ops": [
+        "Simplify",
+        "FullSimplify",
+        "Assuming",
+        "Refine",
+        "Together",
+        "Factor",
+        "Apart",
+        "FunctionExpand",
+        "TrigReduce",
+        "Series",
+        "Normal",
+        "Solve",
+        "Reduce",
+        "Integrate",
+        "D",
+    ],
+}
+
+COMPUTE_STEP_PROMPTS: Dict[str, str] = {
+    "goal": (
+        "What is the goal of this computation? (Describe in natural language; you can be detailed.)\n"
+        'Example: "Symbolically simplify my expression and derive the closed-form for the integral under assumptions a>0, b>0."'
+    ),
+    "inputs": (
+        "What are the inputs? Provide variables, expressions, known constants, and any assumptions.\n"
+        'Example:\n'
+        '- variables: {"a": "positive real", "b": "positive real"}\n'
+        '- expression: "Integrate[Exp[-a x^2] Cos[b x], {x, 0, Infinity}]"\n'
+        '- assumptions: "a>0 && b∈Reals"'
+    ),
+    "expected_outputs": (
+        "What outputs do you expect? Be specific about what should be returned.\n"
+        'Example:\n'
+        '- "closed_form_expression"\n'
+        '- "simplified_form"\n'
+        '- "verification (differentiate result)"\n'
+        '- "optional: numeric check at a=1, b=2"'
+    ),
+    "constraints": (
+        "Any constraints? (runtime limits, accuracy, no-network, allowed tools, etc.) List them.\n"
+        'Example:\n'
+        '- "No internet access"\n'
+        '- "Keep runtime < 10s"\n'
+        '- "Do not use external Mathematica packages"'
+    ),
+    "preferred_formats": (
+        "Preferred output formats? (e.g., plain text, LaTeX, JSON, CSV, PDF figures) List them.\n"
+        'Example:\n'
+        '- "LaTeX for final formulas"\n'
+        '- "Plain text summary in report"\n'
+        '- "PNG plots if any"'
+    ),
+}
+
+MULTISTEP_STEP_PROMPTS: Dict[str, str] = {
+    "goal": "What is the goal of this symbolic multistep computation? Describe in natural language.",
+    "inputs": "What are the inputs? Provide variables, expressions, known constants, and assumptions.",
+    "expected_outputs": "What do you expect as outputs? Be specific about symbolic results, formats, or types.",
+    "constraints": "Any constraints to apply? (runtime limits, accuracy, tool restrictions)",
+    "preferred_formats": "Preferred output formats? (Plain text, LaTeX, JSON, PDF figures, etc.)",
+    "policy_customize": "Do you want to customize execution policy (yes/no)? (default: no)",
+    "policy_max_steps": "Max number of plan steps? (default 8)",
+    "policy_time_limit_sec_per_step": "Time limit per step in seconds? (default 10)",
+    "policy_max_leaf_count": "Max expression complexity (LeafCount cap)? (default 50000)",
+    "policy_overrides": "Any other policy overrides? If yes, paste a JSON object with overrides. Else reply no.",
+}
+
+SCHEMA_MIN_EXAMPLES: Dict[str, str] = {
+    "goal": "goal: simplify symbolic expression for integral identity",
+    "inputs": "variables: x, a; expression: exp(a*x); assumptions: a real",
+    "expected_outputs": "symbolic_result: simplified form; check: equivalence statement",
+    "constraints": "assumptions: a>0, x in Reals; limits: time<10s; tools: local symbolic only; network: none",
+    "preferred_formats": "output: plain text; formulas: latex; table: csv",
+    "policy_customize": "choice: yes or no; default: no",
+    "policy_max_steps": "max_steps: 6",
+    "policy_time_limit_sec_per_step": "time_limit_sec_per_step: 8",
+    "policy_max_leaf_count": "max_leaf_count: 40000",
+    "policy_overrides": "assumptions: x>0; check_level: equivalence",
+}
+
+MULTISTEP_SCHEMA_MIN_EXAMPLES: Dict[str, str] = {
+    "constraints": "assumptions: a>0, x in Reals; limits: time<10s; tools: local symbolic only; network: none",
+}
 
 
 def strip_quotes(s: str) -> str:
@@ -359,6 +521,448 @@ def default_task_name(skill: str) -> str:
     return f"{skill}_{utc_compact()}"
 
 
+def compute_request_paths(root: Path, task_id: str) -> Tuple[Path, Path]:
+    tdir = tasks_dir(root) / task_id
+    return tdir / "request.json", tdir / "request_progress.json"
+
+
+def review_token_path(root: Path, task_id: str) -> Path:
+    return tasks_dir(root) / task_id / "work" / "review_token.txt"
+
+
+def atomic_write_json(path: Path, payload: Dict[str, Any]) -> None:
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    tmp.replace(path)
+
+
+def load_request_progress(root: Path, task_id: str) -> Dict[str, Any]:
+    _, progress_json = compute_request_paths(root, task_id)
+    if not progress_json.exists():
+        return {}
+    try:
+        payload = json.loads(progress_json.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def request_fields_for_skill(skill: str) -> List[str]:
+    if skill == "compute_algebraic_multistep":
+        return list(MULTISTEP_REQUEST_FIELDS)
+    return list(COMPUTE_REQUEST_REQUIRED_FIELDS)
+
+
+def request_prompts_for_skill(skill: str) -> Dict[str, str]:
+    if skill == "compute_algebraic_multistep":
+        return MULTISTEP_STEP_PROMPTS
+    return COMPUTE_STEP_PROMPTS
+
+
+def schema_question_line(skill: str, step: str) -> str:
+    prompts = request_prompts_for_skill(skill)
+    raw = prompts.get(step, "Please provide the missing request field.")
+    first = raw.splitlines()[0].strip()
+    return first or "Please provide the missing request field."
+
+
+def schema_example_line(step: str, skill: str = "") -> str:
+    if skill == "compute_algebraic_multistep" and step in MULTISTEP_SCHEMA_MIN_EXAMPLES:
+        return MULTISTEP_SCHEMA_MIN_EXAMPLES[step]
+    return SCHEMA_MIN_EXAMPLES.get(step, "field: value")
+
+
+def init_compute_request_files(root: Path, task_id: str, skill: str) -> None:
+    req_json, progress_json = compute_request_paths(root, task_id)
+    payload: Dict[str, Any] = {
+        "goal": "",
+        "inputs": {},
+        "expected_outputs": {},
+        "constraints": [],
+        "preferred_formats": [],
+    }
+    if skill == "compute_algebraic_multistep":
+        payload["policy"] = dict(MULTISTEP_POLICY_DEFAULTS)
+    if not req_json.exists():
+        req_json.write_text(
+            json.dumps(payload, indent=2),
+            encoding="utf-8",
+        )
+    atomic_write_json(
+        progress_json,
+        {
+            "current_step": "goal",
+            "updated_at": now_utc(),
+            "review_ready_for_execute": False,
+        },
+    )
+
+
+def load_compute_request(root: Path, task_id: str) -> Dict[str, Any]:
+    req_json, _ = compute_request_paths(root, task_id)
+    if not req_json.exists():
+        payload: Dict[str, Any] = {
+            "goal": "",
+            "inputs": {},
+            "expected_outputs": {},
+            "constraints": [],
+            "preferred_formats": [],
+        }
+        return payload
+    return json.loads(req_json.read_text(encoding="utf-8"))
+
+
+def normalize_object_value(raw: str) -> Dict[str, Any]:
+    txt = raw.strip()
+    if not txt:
+        return {}
+    try:
+        obj = json.loads(txt)
+        if isinstance(obj, dict):
+            return obj
+    except Exception:
+        pass
+    out: Dict[str, Any] = {}
+    for line in txt.splitlines():
+        s = line.strip()
+        if not s:
+            continue
+        if s.startswith("- "):
+            s = s[2:].strip()
+        if ":" in s:
+            k, v = s.split(":", 1)
+            out[k.strip()] = v.strip()
+    return out
+
+
+def normalize_array_value(raw: str) -> List[str]:
+    txt = raw.strip()
+    if not txt:
+        return []
+    try:
+        arr = json.loads(txt)
+        if isinstance(arr, list):
+            return [str(x).strip() for x in arr if str(x).strip()]
+    except Exception:
+        pass
+    lines = [x.strip() for x in txt.splitlines() if x.strip()]
+    out: List[str] = []
+    for line in lines:
+        s = line
+        if s.startswith("- "):
+            s = s[2:].strip()
+        if s:
+            out.append(s)
+    if out:
+        return out
+    return [x.strip() for x in txt.split(",") if x.strip()]
+
+
+def compute_next_step(payload: Dict[str, Any]) -> str:
+    for k in COMPUTE_REQUEST_REQUIRED_FIELDS:
+        v = payload.get(k)
+        if k == "goal" and not str(v or "").strip():
+            return k
+        if k in {"inputs", "expected_outputs"} and not isinstance(v, dict):
+            return k
+        if k in {"inputs", "expected_outputs"} and isinstance(v, dict) and len(v) == 0:
+            return k
+        if k in {"constraints", "preferred_formats"} and (not isinstance(v, list) or len(v) == 0):
+            return k
+    return "done"
+
+
+def is_compute_skill(skill: str) -> bool:
+    return str(skill or "").startswith("compute_")
+
+
+def merge_multistep_policy_defaults(payload: Dict[str, Any]) -> Dict[str, Any]:
+    policy = payload.get("policy", {})
+    if not isinstance(policy, dict):
+        policy = {}
+    for key, value in MULTISTEP_POLICY_DEFAULTS.items():
+        if key not in policy:
+            policy[key] = value
+    payload["policy"] = policy
+    return payload
+
+
+def write_request_progress(
+    root: Path,
+    task_id: str,
+    current_step: str,
+    review_ready_for_execute: Optional[bool] = None,
+    review_token: Optional[str] = None,
+    review_token_issued_at: Optional[str] = None,
+) -> None:
+    _, progress_json = compute_request_paths(root, task_id)
+    progress = load_request_progress(root, task_id)
+    progress["current_step"] = current_step
+    progress["updated_at"] = now_utc()
+    if review_ready_for_execute is None:
+        if "review_ready_for_execute" not in progress:
+            progress["review_ready_for_execute"] = False
+    else:
+        progress["review_ready_for_execute"] = bool(review_ready_for_execute)
+    if review_token is not None:
+        progress["review_token"] = review_token
+    if review_token_issued_at is not None:
+        progress["review_token_issued_at"] = review_token_issued_at
+    atomic_write_json(progress_json, progress)
+
+
+def review_ready_for_execute(root: Path, task_id: str) -> bool:
+    progress = load_request_progress(root, task_id)
+    return bool(progress.get("review_ready_for_execute", False))
+
+
+def current_review_token(root: Path, task_id: str) -> str:
+    progress = load_request_progress(root, task_id)
+    token = str(progress.get("review_token", "")).strip()
+    if token:
+        return token
+    token_file = review_token_path(root, task_id)
+    if token_file.exists():
+        return token_file.read_text(encoding="utf-8").strip()
+    return ""
+
+
+def issue_review_token(root: Path, task_id: str, current_step: str = "done") -> None:
+    token = secrets.token_hex(4)
+    token_file = review_token_path(root, task_id)
+    token_file.parent.mkdir(parents=True, exist_ok=True)
+    token_file.write_text(token + "\n", encoding="utf-8")
+    issued_at = now_utc()
+    write_request_progress(
+        root,
+        task_id,
+        current_step,
+        review_ready_for_execute=False,
+        review_token=token,
+        review_token_issued_at=issued_at,
+    )
+
+
+def request_preflight_status(root: Path, task_id: str, skill: str) -> Dict[str, Any]:
+    req_json, _ = compute_request_paths(root, task_id)
+    payload: Dict[str, Any] = {}
+    if req_json.exists():
+        try:
+            payload = json.loads(req_json.read_text(encoding="utf-8"))
+        except Exception:
+            payload = {}
+    if not isinstance(payload, dict):
+        payload = {}
+
+    if skill == "compute_algebraic_multistep":
+        payload = merge_multistep_policy_defaults(payload)
+        req_json.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
+    next_step = compute_next_step(payload)
+
+    request_complete = next_step == "done"
+    write_request_progress(root, task_id, next_step)
+    return {
+        "request_complete": request_complete,
+        "request_step": next_step,
+    }
+
+
+def write_need_input_md(root: Path, task_id: str, skill: str, request_step: str) -> str:
+    review_dir = tasks_dir(root) / task_id / "review"
+    review_dir.mkdir(parents=True, exist_ok=True)
+    out = review_dir / "need_input.md"
+    prompts = request_prompts_for_skill(skill)
+    prompt_text = prompts.get(request_step, "Please provide the missing request field.")
+    out.write_text(
+        (
+            "# Input Needed\n\n"
+            f"- task_id: {task_id}\n"
+            f"- skill: {skill}\n"
+            "- request_complete: false\n"
+            f"- request_step: {request_step}\n\n"
+            "## Next question (English)\n"
+            f"{prompt_text}\n"
+        ),
+        encoding="utf-8",
+    )
+    return str(out.relative_to(root))
+
+
+def next_step_for_multistep(payload: Dict[str, Any], updated_field: str, raw_value: str) -> str:
+    for key in COMPUTE_REQUEST_REQUIRED_FIELDS:
+        val = payload.get(key)
+        if key == "goal" and not str(val or "").strip():
+            return key
+        if key in {"inputs", "expected_outputs"} and (not isinstance(val, dict) or len(val) == 0):
+            return key
+        if key in {"constraints", "preferred_formats"} and (not isinstance(val, list) or len(val) == 0):
+            return key
+    answer = raw_value.strip().lower()
+    if updated_field in COMPUTE_REQUEST_REQUIRED_FIELDS:
+        return "policy_customize"
+    if updated_field == "policy_customize":
+        return "policy_max_steps" if answer in {"y", "yes", "true", "1"} else "policy_overrides"
+    if updated_field == "policy_max_steps":
+        return "policy_time_limit_sec_per_step"
+    if updated_field == "policy_time_limit_sec_per_step":
+        return "policy_max_leaf_count"
+    if updated_field == "policy_max_leaf_count":
+        return "policy_overrides"
+    if updated_field == "policy_overrides":
+        return "done"
+    return "policy_customize"
+
+
+def write_compute_request_state(
+    root: Path,
+    task_id: str,
+    payload: Dict[str, Any],
+    *,
+    skill: str,
+    updated_field: str,
+    raw_value: str,
+) -> str:
+    req_json, _ = compute_request_paths(root, task_id)
+    req_json.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    if skill == "compute_algebraic_multistep":
+        next_step = next_step_for_multistep(payload, updated_field=updated_field, raw_value=raw_value)
+    else:
+        next_step = compute_next_step(payload)
+    write_request_progress(root, task_id, next_step)
+    return next_step
+
+
+def cmd_request_set(root: Path, args: argparse.Namespace) -> int:
+    task_id = args.task
+    field = str(args.field or "").strip()
+    meta_path = tasks_dir(root) / task_id / "meta.json"
+    if not meta_path.exists():
+        print(f"ERROR=Task not found: {task_id}", file=sys.stderr)
+        return 2
+    meta = json.loads(meta_path.read_text(encoding="utf-8"))
+    skill = str(meta.get("skill", "")).strip()
+    if skill not in SUPPORTED_REQUEST_SKILLS:
+        print(f"ERROR=request-set is only supported for compute skills. skill={skill}", file=sys.stderr)
+        return 2
+    allowed_fields = set(request_fields_for_skill(skill))
+    if field not in allowed_fields:
+        print(f"ERROR=Invalid field: {field}", file=sys.stderr)
+        return 2
+    payload = load_compute_request(root, task_id)
+    if skill == "compute_algebraic_multistep" and not isinstance(payload.get("policy"), dict):
+        payload["policy"] = dict(MULTISTEP_POLICY_DEFAULTS)
+
+    _, progress_json = compute_request_paths(root, task_id)
+    current_step = ""
+    if progress_json.exists():
+        try:
+            progress_obj = json.loads(progress_json.read_text(encoding="utf-8"))
+            current_step = str(progress_obj.get("current_step", "")).strip()
+        except Exception:
+            current_step = ""
+    if not current_step:
+        current_step = compute_next_step(payload)
+    if current_step == "done":
+        print("ERROR=Request is already complete.", file=sys.stderr)
+        return 2
+    if field != current_step:
+        print(f"ERROR=Expected field '{current_step}' next, got '{field}'.", file=sys.stderr)
+        return 2
+    if bool(args.value) == bool(args.file):
+        print("ERROR=Provide exactly one of --value or --file.", file=sys.stderr)
+        return 2
+    raw = ""
+    if args.value:
+        raw = str(args.value)
+    if args.file:
+        src = Path(args.file).expanduser()
+        if not src.is_absolute():
+            src = (root / src).resolve()
+        if not src.exists():
+            print(f"ERROR=Value file not found: {src}", file=sys.stderr)
+            return 2
+        raw = src.read_text(encoding="utf-8")
+
+    if field == "goal":
+        payload[field] = raw.strip()
+    elif field in {"inputs", "expected_outputs"}:
+        payload[field] = normalize_object_value(raw)
+    elif field == "policy_customize":
+        answer = raw.strip().lower()
+        if answer in {"y", "yes", "true", "1"}:
+            payload["policy"] = dict(MULTISTEP_POLICY_DEFAULTS)
+        else:
+            payload["policy"] = dict(MULTISTEP_POLICY_DEFAULTS)
+    elif field == "policy_max_steps":
+        policy = dict(payload.get("policy") or MULTISTEP_POLICY_DEFAULTS)
+        try:
+            policy["max_steps"] = int(raw.strip() or str(MULTISTEP_POLICY_DEFAULTS["max_steps"]))
+        except ValueError:
+            policy["max_steps"] = int(MULTISTEP_POLICY_DEFAULTS["max_steps"])
+        payload["policy"] = policy
+    elif field == "policy_time_limit_sec_per_step":
+        policy = dict(payload.get("policy") or MULTISTEP_POLICY_DEFAULTS)
+        try:
+            policy["time_limit_sec_per_step"] = int(
+                raw.strip() or str(MULTISTEP_POLICY_DEFAULTS["time_limit_sec_per_step"])
+            )
+        except ValueError:
+            policy["time_limit_sec_per_step"] = int(MULTISTEP_POLICY_DEFAULTS["time_limit_sec_per_step"])
+        payload["policy"] = policy
+    elif field == "policy_max_leaf_count":
+        policy = dict(payload.get("policy") or MULTISTEP_POLICY_DEFAULTS)
+        try:
+            policy["max_leaf_count"] = int(raw.strip() or str(MULTISTEP_POLICY_DEFAULTS["max_leaf_count"]))
+        except ValueError:
+            policy["max_leaf_count"] = int(MULTISTEP_POLICY_DEFAULTS["max_leaf_count"])
+        payload["policy"] = policy
+    elif field == "policy_overrides":
+        policy = dict(payload.get("policy") or MULTISTEP_POLICY_DEFAULTS)
+        txt = raw.strip().lower()
+        if txt not in {"", "no", "n"}:
+            try:
+                obj = json.loads(raw)
+            except Exception:
+                obj = {}
+            if isinstance(obj, dict):
+                for key in MULTISTEP_POLICY_DEFAULTS.keys():
+                    if key in obj:
+                        policy[key] = obj[key]
+        payload["policy"] = policy
+    else:
+        payload[field] = normalize_array_value(raw)
+    next_step = write_compute_request_state(
+        root,
+        task_id,
+        payload,
+        skill=skill,
+        updated_field=field,
+        raw_value=raw,
+    )
+
+    if skill == "compute_algebraic_multistep":
+        req_md = tasks_dir(root) / task_id / "request.md"
+        req_md.write_text(
+            "# Request (mirror)\n\n```json\n"
+            + json.dumps(payload, indent=2)
+            + "\n```\n",
+            encoding="utf-8",
+        )
+
+    print(f"REQUEST_FIELD_UPDATED={field}")
+    print(f"REQUEST_STEP={next_step}")
+    print(f"REQUEST_COMPLETE={'true' if next_step == 'done' else 'false'}")
+    if next_step == "done":
+        print("STOP_REASON=request_complete_waiting_user_run")
+        print("Say continue and we will start to plan.")
+    else:
+        print("STOP_REASON=need_user_input")
+        print(schema_question_line(skill, next_step))
+        print(f"MIN_EXAMPLE: {schema_example_line(next_step, skill)}")
+    return 0
+
+
 def reserve_task_id(root: Path, skill: str) -> str:
     # Ensure uniqueness while preserving the <skill>_<timestamp> format.
     while True:
@@ -408,6 +1012,23 @@ def cmd_start(root: Path, args: argparse.Namespace) -> int:
     (tdir / "meta.json").write_text(json.dumps(meta, indent=2), encoding="utf-8")
 
     print(f"TASK={task_id} REQUEST=AGENTS/tasks/{task_id}/request.md")
+    if args.skill in SUPPORTED_REQUEST_SKILLS:
+        init_compute_request_files(root, task_id, skill=args.skill)
+        if args.skill == "compute_algebraic_multistep":
+            req_md = tasks_dir(root) / task_id / "request.md"
+            req_md.write_text(
+                "# Request (mirror)\n\n```json\n"
+                + json.dumps(load_compute_request(root, task_id), indent=2)
+                + "\n```\n",
+                encoding="utf-8",
+            )
+        print(f"REQUEST_JSON=AGENTS/tasks/{task_id}/request.json")
+        print(f"REQUEST_PROGRESS=AGENTS/tasks/{task_id}/request_progress.json")
+        print("REQUEST_STEP=goal")
+        print("REQUEST_COMPLETE=false")
+        print("STOP_REASON=need_user_input")
+        print(schema_question_line(args.skill, "goal"))
+        print(f"MIN_EXAMPLE: {schema_example_line('goal', args.skill)}")
     return 0
 
 
@@ -551,7 +1172,7 @@ def write_error_report(root: Path, task_id: str, phase: str, err: Exception, std
         f"PHASE: {phase}\n\n"
         f"LIKELY_CAUSE: {likely_cause}\n\n"
         f"IF_UNKNOWN_GUESS: {unknown_guess}\n\n"
-        f"NEXT_STEP: {next_step}\n\n"
+        f"RECOVERY_STEP: {next_step}\n\n"
         "FULL_TRACEBACK:\n"
         "```text\n"
         f"{trace}"
@@ -657,7 +1278,6 @@ def write_promotion_preview(root: Path, task_id: str, skill: str) -> Tuple[str, 
         f"- staged_dir: GATE/staged/{task_id}/{skill}",
         "",
         "PROMOTION_STATUS=READY",
-        f"NEXT_PROMOTE_CMD={next_cmd}",
         f"PROMOTE_PREVIEW_PATH=GATE/staged/{task_id}/PROMOTE.md",
         "",
         "## File Mapping (GATE -> USER)",
@@ -676,9 +1296,6 @@ def write_promotion_preview(root: Path, task_id: str, skill: str) -> Tuple[str, 
     else:
         lines.append("- (no known mappings discovered for this skill)")
     lines += [
-        "",
-        "## Command",
-        f"- {next_cmd}",
         "",
         'Warning: Promotion requires explicit user confirmation. The workflow is paused.',
         "",
@@ -708,14 +1325,14 @@ def prompt_yes_no_fuzzy_tty(prompt: str) -> Tuple[bool, bool]:
             tty.write(prompt)
             tty.flush()
             ans = tty.readline().strip().lower()
-            if ans in {"yes", "y", "yeah", "ok", "sure", "1", "promote"}:
+            if ans in {"yes", "y"}:
                 return True, False
-            if ans in {"no", "n", "stop", "0", "cancel", ""}:
+            if ans in {"no", "n", ""}:
                 return False, False
             tty.write(prompt)
             tty.flush()
             ans2 = tty.readline().strip().lower()
-            if ans2 in {"yes", "y", "yeah", "ok", "sure", "1", "promote"}:
+            if ans2 in {"yes", "y"}:
                 return True, False
             return False, False
     except Exception:
@@ -723,15 +1340,15 @@ def prompt_yes_no_fuzzy_tty(prompt: str) -> Tuple[bool, bool]:
             ans = input(prompt).strip().lower()
         except EOFError:
             return False, True
-        if ans in {"yes", "y", "yeah", "ok", "sure", "1", "promote"}:
+        if ans in {"yes", "y"}:
             return True, False
-        if ans in {"no", "n", "stop", "0", "cancel", ""}:
+        if ans in {"no", "n", ""}:
             return False, False
         try:
             ans2 = input(prompt).strip().lower()
         except EOFError:
             return False, True
-        if ans2 in {"yes", "y", "yeah", "ok", "sure", "1", "promote"}:
+        if ans2 in {"yes", "y"}:
             return True, False
         return False, False
 
@@ -764,6 +1381,29 @@ def cmd_run(root: Path, args: argparse.Namespace) -> int:
         if not agent_mode_on:
             auto_promote_user = False
 
+        if is_compute_skill(skill):
+            preflight = request_preflight_status(root, task_id, skill)
+            if not preflight["request_complete"]:
+                request_step = str(preflight["request_step"])
+                need_input_path = write_need_input_md(root, task_id, skill, request_step)
+                print("RUN_STATUS=PAUSED_FOR_INPUT")
+                print("REQUEST_COMPLETE=false")
+                print(f"REQUEST_STEP={request_step}")
+                print(f"NEED_INPUT_PATH={need_input_path}")
+                print("STOP_REASON=need_user_input")
+                print(schema_question_line(skill, request_step))
+                print(f"MIN_EXAMPLE: {schema_example_line(request_step, skill)}")
+                return 0
+            if skill == "compute_algebraic_multistep":
+                if args.execute and not review_ready_for_execute(root, task_id):
+                    print("EXECUTION_ALLOWED=false")
+                    print("STOP_REASON=need_user_review")
+                    print("REVIEW_READY_FOR_EXECUTE=false")
+                    print("HINT=Review required.")
+                    return 0
+                if not args.execute:
+                    write_request_progress(root, task_id, str(preflight["request_step"]), review_ready_for_execute=False)
+
         # Run is non-interactive by design; approval_mode defaults to "no"
         # unless explicitly set to --yes.
         approval_mode = "yes" if args.yes else "no"
@@ -776,6 +1416,8 @@ def cmd_run(root: Path, args: argparse.Namespace) -> int:
         env["SKILL_CLARIFICATION_POLICY"] = skill_clarification_policy(root, skill, smeta)
         env["ONLINE_LOOKUP"] = "1" if args.online else "0"
         env["NET_ALLOWED"] = "1" if args.net else "0"
+        env["COMPUTE_EXECUTE"] = "1" if args.execute else "0"
+        debug_mode = env_truthy("AGENTHUB_DEBUG", False)
         cp = subprocess.run(
             [str(root / "bin" / "agentctl"), "run", skill, "--task", task_id],
             cwd=str(root),
@@ -785,12 +1427,37 @@ def cmd_run(root: Path, args: argparse.Namespace) -> int:
         )
         if cp.returncode != 0:
             if cp.stdout.strip():
-                print(cp.stdout.strip())
+                safe_stdout = sanitize_user_lines(root, task_id, cp.stdout)
+                if safe_stdout:
+                    print(safe_stdout)
             raise SkillSubprocessError(skill=skill, returncode=cp.returncode, stdout=cp.stdout, stderr=cp.stderr)
         if cp.stdout.strip():
-            print(cp.stdout.strip())
-        if cp.stderr.strip():
+            safe_stdout = sanitize_user_lines(root, task_id, cp.stdout)
+            if safe_stdout:
+                if skill == "compute_algebraic_multistep" and not args.execute:
+                    kept = []
+                    for line in safe_stdout.splitlines():
+                        if line.startswith("PLAN_STATUS=") or line.startswith("EXECUTION_ALLOWED="):
+                            continue
+                        kept.append(line)
+                    if kept:
+                        print("\n".join(kept).strip())
+                else:
+                    print(safe_stdout)
+        if debug_mode and cp.stderr.strip():
             print(cp.stderr.strip(), file=sys.stderr)
+
+        if skill == "compute_algebraic_multistep" and not args.execute:
+            issue_review_token(root, task_id, current_step="done")
+            plan_path = f"AGENTS/tasks/{task_id}/work/src/plan.json"
+            report_plan_path = f"AGENTS/tasks/{task_id}/work/report_plan.md"
+            print("PLAN_STATUS=READY_FOR_REVIEW")
+            print("EXECUTION_ALLOWED=false")
+            print("STOP_REASON=need_user_review")
+            print(f"PLAN_PATH={plan_path if (root / plan_path).exists() else 'NONE'}")
+            print(f"REPORT_PLAN_PATH={report_plan_path if (root / report_plan_path).exists() else 'NONE'}")
+            print("Review required.")
+            return 0
 
         phase = "stage"
         if args.no_stage_gate:
@@ -818,7 +1485,7 @@ def cmd_run(root: Path, args: argparse.Namespace) -> int:
         print("PROMOTION_STATUS=READY")
         print(f"PROMOTE_PLAN_PATH: {preview_path}")
         print("PROMOTION_PENDING: true")
-        print("PROMOTE_INSTRUCTIONS: Use the promote subcommand when ready.")
+        print("Run completed. Inspect GATE output. I will promote only when you say READY.")
         return 0
     except Exception as err:
         skill_error = tasks_dir(root) / task_id / "review" / "error.md"
@@ -858,11 +1525,7 @@ def cmd_promote(root: Path, args: argparse.Namespace) -> int:
 
     if not interactive_tty:
         if not (args.yes and args.allow_user_write_noninteractive):
-            next_cmd = (
-                f"./bin/agenthub promote --task {task_id} "
-                "--yes --allow-user-write-noninteractive"
-            )
-            print(f"PROMOTE_TO_USER=skipped reason=noninteractive_requires_explicit_flags NEXT={next_cmd}")
+            print("PROMOTE_TO_USER=skipped reason=noninteractive_requires_explicit_flags")
             return 0
 
     cmd = ["bash", "AGENTS/runtime/promote_to_user.sh", "--task", task_id]
@@ -903,16 +1566,16 @@ def prompt_yes_no_fuzzy(prompt: str) -> Tuple[bool, bool]:
         ans = input(prompt).strip().lower()
     except EOFError:
         return False, True
-    if ans in {"yes", "y", "yeah", "ok", "sure", "1", "promote"}:
+    if ans in {"yes", "y"}:
         return True, False
-    if ans in {"no", "n", "stop", "0", "cancel", ""}:
+    if ans in {"no", "n", ""}:
         return False, False
     # ambiguous: ask once more, then default NO
     try:
         ans2 = input(prompt).strip().lower()
     except EOFError:
         return False, True
-    if ans2 in {"yes", "y", "yeah", "ok", "sure", "1", "promote"}:
+    if ans2 in {"yes", "y"}:
         return True, False
     return False, False
 
@@ -956,6 +1619,116 @@ def cmd_doctor(root: Path) -> int:
     return 0
 
 
+def cmd_plan_revise(root: Path, args: argparse.Namespace) -> int:
+    task_id = args.task
+    feedback = str(args.feedback or "").strip()
+    if not feedback:
+        print("ERROR=--feedback is required.", file=sys.stderr)
+        return 2
+    skill = infer_skill(root, task_id)
+    if skill != "compute_algebraic_multistep":
+        print("ERROR=plan-revise is only supported for compute_algebraic_multistep.", file=sys.stderr)
+        return 2
+    preflight = request_preflight_status(root, task_id, skill)
+    if not preflight["request_complete"]:
+        request_step = str(preflight["request_step"])
+        need_input_path = write_need_input_md(root, task_id, skill, request_step)
+        print("RUN_STATUS=PAUSED_FOR_INPUT")
+        print("REQUEST_COMPLETE=false")
+        print(f"REQUEST_STEP={request_step}")
+        print(f"NEED_INPUT_PATH={need_input_path}")
+        print("STOP_REASON=need_user_input")
+        print(schema_question_line(skill, request_step))
+        print(f"MIN_EXAMPLE: {schema_example_line(request_step, skill)}")
+        return 0
+
+    tdir = tasks_dir(root) / task_id
+    feedback_path = tdir / "work" / "src" / "plan_feedback.txt"
+    feedback_path.parent.mkdir(parents=True, exist_ok=True)
+    timestamp = now_utc()
+    with feedback_path.open("a", encoding="utf-8") as handle:
+        handle.write(f"[{timestamp}] {feedback}\n")
+
+    env = os.environ.copy()
+    env["APPROVAL_MODE"] = "no"
+    env["APPROVAL_INTERACTIVE"] = "0"
+    env["ALLOW_USER_WRITE"] = "0"
+    env["SKILL_CLARIFICATION_POLICY"] = "auto"
+    env["ONLINE_LOOKUP"] = "0"
+    env["NET_ALLOWED"] = "0"
+    env["COMPUTE_EXECUTE"] = "0"
+    cp = subprocess.run(
+        [str(root / "bin" / "agentctl"), "run", skill, "--task", task_id],
+        cwd=str(root),
+        env=env,
+        text=True,
+        capture_output=True,
+    )
+    if cp.returncode != 0:
+        report = write_error_report(root, task_id, phase="plan_revise", err=SkillSubprocessError(skill, cp.returncode, cp.stdout, cp.stderr), stderr_hint=cp.stderr)
+        print_error_summary(root, RuntimeError("plan revise failed"), report)
+        return 2
+    if cp.stdout.strip():
+        safe_stdout = sanitize_user_lines(root, task_id, cp.stdout)
+        if safe_stdout:
+            kept = []
+            for line in safe_stdout.splitlines():
+                if line.startswith("PLAN_STATUS=") or line.startswith("EXECUTION_ALLOWED="):
+                    continue
+                kept.append(line)
+            if kept:
+                print("\n".join(kept).strip())
+    write_request_progress(root, task_id, "done", review_ready_for_execute=False)
+    issue_review_token(root, task_id, current_step="done")
+    plan_path = f"AGENTS/tasks/{task_id}/work/src/plan.json"
+    report_plan_path = f"AGENTS/tasks/{task_id}/work/report_plan.md"
+    print("PLAN_STATUS=READY_FOR_REVIEW")
+    print("EXECUTION_ALLOWED=false")
+    print("STOP_REASON=need_user_review")
+    print(f"PLAN_PATH={plan_path if (root / plan_path).exists() else 'NONE'}")
+    print(f"REPORT_PLAN_PATH={report_plan_path if (root / report_plan_path).exists() else 'NONE'}")
+    print(f"PLAN_FEEDBACK_PATH={feedback_path.relative_to(root)}")
+    print("Review required.")
+    return 0
+
+
+def cmd_review_accept(root: Path, args: argparse.Namespace) -> int:
+    task_id = args.task
+    provided_token = str(args.token or "").strip()
+    meta_path = tasks_dir(root) / task_id / "meta.json"
+    if not meta_path.exists():
+        print(f"ERROR=Task not found: {task_id}", file=sys.stderr)
+        return 2
+    try:
+        meta = json.loads(meta_path.read_text(encoding="utf-8"))
+    except Exception:
+        print(f"ERROR=Invalid task metadata: {task_id}", file=sys.stderr)
+        return 2
+    skill = str(meta.get("skill", "")).strip()
+    if skill != "compute_algebraic_multistep":
+        print("ERROR=review-accept is only supported for compute_algebraic_multistep.", file=sys.stderr)
+        return 2
+    token_file = review_token_path(root, task_id)
+    if not provided_token or not token_file.exists():
+        print("REVIEW_ACCEPTED=false")
+        print("REVIEW_READY_FOR_EXECUTE=false")
+        print("STOP_REASON=need_user_review")
+        return 2
+    expected_token = token_file.read_text(encoding="utf-8").strip()
+    if not expected_token or not hmac.compare_digest(provided_token, expected_token):
+        print("REVIEW_ACCEPTED=false")
+        print("REVIEW_READY_FOR_EXECUTE=false")
+        print("STOP_REASON=need_user_review")
+        return 2
+    progress = load_request_progress(root, task_id)
+    current_step = str(progress.get("current_step", "")).strip() or "done"
+    write_request_progress(root, task_id, current_step, review_ready_for_execute=True)
+    print("REVIEW_ACCEPTED=true")
+    print("REVIEW_READY_FOR_EXECUTE=true")
+    print("STOP_REASON=request_complete_waiting_user_execute")
+    return 0
+
+
 def main() -> int:
     root = repo_root()
 
@@ -987,6 +1760,7 @@ def main() -> int:
     prun.add_argument("--agent-mode", action="store_true")
     prun.add_argument("--auto-promote-user", action="store_true")
     prun.add_argument("--allow-user-write-noninteractive", action="store_true")
+    prun.add_argument("--execute", action="store_true")
 
     ppromote = sub.add_parser("promote")
     ppromote.add_argument("--task", required=True)
@@ -997,7 +1771,21 @@ def main() -> int:
     pname = sub.add_parser("task-name")
     pname.add_argument("--skill", required=True)
 
+    preq = sub.add_parser("request-set")
+    preq.add_argument("--task", required=True)
+    preq.add_argument("--field", required=True)
+    preq.add_argument("--value", default=None)
+    preq.add_argument("--file", default=None)
+
+    prevacc = sub.add_parser("review-accept")
+    prevacc.add_argument("--task", required=True)
+    prevacc.add_argument("--token", required=True)
+
     sub.add_parser("doctor")
+
+    previse = sub.add_parser("plan-revise")
+    previse.add_argument("--task", required=True)
+    previse.add_argument("--feedback", required=True)
 
     args = parser.parse_args()
 
@@ -1014,8 +1802,14 @@ def main() -> int:
     if args.cmd == "task-name":
         print(f"TASK_NAME={default_task_name(args.skill)}")
         return 0
+    if args.cmd == "request-set":
+        return cmd_request_set(root, args)
+    if args.cmd == "review-accept":
+        return cmd_review_accept(root, args)
     if args.cmd == "doctor":
         return cmd_doctor(root)
+    if args.cmd == "plan-revise":
+        return cmd_plan_revise(root, args)
 
     return 2
 

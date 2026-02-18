@@ -1,0 +1,30 @@
+name: compute_algebraic_multistep
+title: Compute Algebraic Multistep (Wolfram)
+description: Build a reviewed symbolic plan first, then execute approved steps with Wolfram Language.
+run: scripts/run.sh
+prompt: prompts/prompt.md
+schema: schemas/schema.json
+keywords:
+  - compute
+  - algebraic
+  - symbolic
+  - multistep
+  - mathematica
+  - wolfram
+  - plan
+  - execute
+outputs:
+  - report: "AGENTS/tasks/<task_id>/work/report.md"
+  - plan: "AGENTS/tasks/<task_id>/work/src/plan.json"
+  - code: "AGENTS/tasks/<task_id>/work/src/steps/"
+  - figures: "AGENTS/tasks/<task_id>/work/fig/"
+requires_network: false
+preferred_runner:
+  - codex
+risk: medium
+clarification_policy: auto
+confirmations:
+  - Start collects request schema and stops.
+  - run (default) generates plan only and stops.
+  - run --execute executes approved steps.
+  - Promotion remains explicit and separate.

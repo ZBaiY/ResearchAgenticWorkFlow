@@ -1,0 +1,31 @@
+{
+  "goal": "",
+  "inputs": {},
+  "expected_outputs": {},
+  "constraints": [],
+  "preferred_formats": [],
+  "policy": {
+    "max_steps": 8,
+    "time_limit_sec_per_step": 10,
+    "max_leaf_count": 50000,
+    "assumptions": "",
+    "check_level": "equivalence",
+    "allowlist_ops": [
+      "Simplify",
+      "FullSimplify",
+      "Assuming",
+      "Refine",
+      "Together",
+      "Factor",
+      "Apart",
+      "FunctionExpand",
+      "TrigReduce",
+      "Series",
+      "Normal",
+      "Solve",
+      "Reduce",
+      "Integrate",
+      "D"
+    ]
+  }
+}

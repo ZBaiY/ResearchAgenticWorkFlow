@@ -7,8 +7,6 @@
 ## Current consent logs
 - Stage consent is recorded per skill run at:
   - `AGENTS/tasks/<task_id>/logs/<skill_name>/stage_consent.json`
-- Compute export consent is recorded at:
-  - `AGENTS/tasks/<task_id>/logs/compute/consent.json`
 - Slide export consent is recorded at:
   - `AGENTS/tasks/<task_id>/logs/slide_preparation/consent.json`
 

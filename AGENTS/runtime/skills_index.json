@@ -1,27 +1,33 @@
 {
-  "generated_at_utc": "2026-02-09T16:05:06Z",
+  "generated_at_utc": "2026-02-17T02:29:35Z",
   "repo_root": "/Users/zhaoyub/Desktop/PHYSICS/AgenticWorkflow",
   "skills": [
     {
-      "name": "compute",
-      "path": "AGENTS/skills/compute",
-      "title": "Compute Job Scaffold (Deprecated)",
-      "description": "Deprecated generic compute skill; use compute_numerical or compute_symbolic instead.",
+      "name": "compute_algebraic",
+      "path": "AGENTS/skills/compute_algebraic",
+      "title": "Compute Algebraic (Wolfram Language)",
+      "description": "Run symbolic/algebraic computations from a structured request and stage outputs to GATE.",
       "run": "scripts/run.sh",
       "prompt": "prompts/prompt.md",
       "schema": "schemas/schema.json",
       "keywords": [
         "compute",
-        "simulation",
-        "reproducibility",
-        "hashes"
+        "algebraic",
+        "symbolic",
+        "mathematica",
+        "wolfram",
+        "simplification",
+        "derivation"
       ],
       "outputs": [
         {
-          "review": "AGENTS/tasks/<task_id>/review/compute_skill_report.md"
+          "report": "AGENTS/tasks/<task_id>/work/report.md"
         },
         {
-          "patch": "AGENTS/tasks/<task_id>/deliverable/patchset/patch.diff"
+          "code": "AGENTS/tasks/<task_id>/work/src/main.wl"
+        },
+        {
+          "figures": "AGENTS/tasks/<task_id>/work/fig/"
         }
       ],
       "requires_network": false,
@@ -30,44 +36,8 @@
       ],
       "risk": "medium",
       "confirmations": [
-        "Deprecated skill. Prefer compute_numerical (Python) or compute_symbolic (Mathematica)."
-      ],
-      "clarification_policy": "ask_user",
-      "has_run_sh": true,
-      "has_prompt_md": true,
-      "has_schema": true,
-      "degraded": false,
-      "warnings": []
-    },
-    {
-      "name": "compute_numerical",
-      "path": "AGENTS/skills/compute_numerical",
-      "title": "Numerical Compute (Python)",
-      "description": "Run numerical computations in Python with reproducibility logs and export-on-consent flow.",
-      "run": "scripts/run.sh",
-      "prompt": "prompts/prompt.md",
-      "schema": "schemas/schema.json",
-      "keywords": [
-        "compute",
-        "numerical",
-        "python",
-        "sanity checks"
-      ],
-      "outputs": [
-        {
-          "review": "AGENTS/tasks/<task_id>/review/compute_numerical_report.md"
-        },
-        {
-          "patch": "AGENTS/tasks/<task_id>/deliverable/patchset/patch.diff"
-        }
-      ],
-      "requires_network": false,
-      "preferred_runner": [
-        "codex"
-      ],
-      "risk": "medium",
-      "confirmations": [
-        "Executes Python code in task sandbox and may prompt for source export."
+        "Run generates artifacts under AGENTS/tasks/<task_id>/work and stages to GATE.",
+        "Promotion remains explicit and separate."
       ],
       "clarification_policy": "auto",
       "has_run_sh": true,
@@ -77,25 +47,35 @@
       "warnings": []
     },
     {
-      "name": "compute_symbolic",
-      "path": "AGENTS/skills/compute_symbolic",
-      "title": "Symbolic Compute (Mathematica)",
-      "description": "Run symbolic computations with wolframscript/math and export source on consent.",
+      "name": "compute_algebraic_multistep",
+      "path": "AGENTS/skills/compute_algebraic_multistep",
+      "title": "Compute Algebraic Multistep (Wolfram)",
+      "description": "Build a reviewed symbolic plan first, then execute approved steps with Wolfram Language.",
       "run": "scripts/run.sh",
       "prompt": "prompts/prompt.md",
       "schema": "schemas/schema.json",
       "keywords": [
         "compute",
+        "algebraic",
         "symbolic",
+        "multistep",
         "mathematica",
-        "wolfram"
+        "wolfram",
+        "plan",
+        "execute"
       ],
       "outputs": [
         {
-          "review": "AGENTS/tasks/<task_id>/review/compute_symbolic_report.md"
+          "report": "AGENTS/tasks/<task_id>/work/report.md"
         },
         {
-          "patch": "AGENTS/tasks/<task_id>/deliverable/patchset/patch.diff"
+          "plan": "AGENTS/tasks/<task_id>/work/src/plan.json"
+        },
+        {
+          "code": "AGENTS/tasks/<task_id>/work/src/steps/"
+        },
+        {
+          "figures": "AGENTS/tasks/<task_id>/work/fig/"
         }
       ],
       "requires_network": false,
@@ -104,7 +84,53 @@
       ],
       "risk": "medium",
       "confirmations": [
-        "Executes Wolfram symbolic code in task sandbox and may prompt for source export."
+        "Start collects request schema and stops.",
+        "run (default) generates plan only and stops.",
+        "run --execute executes approved steps.",
+        "Promotion remains explicit and separate."
+      ],
+      "clarification_policy": "auto",
+      "has_run_sh": true,
+      "has_prompt_md": true,
+      "has_schema": true,
+      "degraded": false,
+      "warnings": []
+    },
+    {
+      "name": "compute_numerical",
+      "path": "AGENTS/skills/compute_numerical",
+      "title": "Compute Numerical (Python)",
+      "description": "Run deterministic numerical computations from a structured request and stage outputs to GATE.",
+      "run": "scripts/run.sh",
+      "prompt": "prompts/prompt.md",
+      "schema": "schemas/schema.json",
+      "keywords": [
+        "compute",
+        "numerical",
+        "python",
+        "simulation",
+        "plotting",
+        "statistics"
+      ],
+      "outputs": [
+        {
+          "report": "AGENTS/tasks/<task_id>/work/report.md"
+        },
+        {
+          "code": "AGENTS/tasks/<task_id>/work/src/main.py"
+        },
+        {
+          "figures": "AGENTS/tasks/<task_id>/work/fig/"
+        }
+      ],
+      "requires_network": false,
+      "preferred_runner": [
+        "codex"
+      ],
+      "risk": "medium",
+      "confirmations": [
+        "Run generates artifacts under AGENTS/tasks/<task_id>/work and stages to GATE.",
+        "Promotion remains explicit and separate."
       ],
       "clarification_policy": "auto",
       "has_run_sh": true,

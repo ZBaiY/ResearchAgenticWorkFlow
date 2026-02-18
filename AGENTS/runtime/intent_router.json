@@ -73,7 +73,7 @@
       ]
     },
     {
-      "skill": "compute_symbolic",
+      "skill": "compute_algebraic",
       "boost": 60,
       "boost_all": 20,
       "penalty": 15,
@@ -88,6 +88,30 @@
       "all_keywords": [
         "symbolic",
         "series"
+      ],
+      "negative_keywords": [
+        "numeric",
+        "python"
+      ]
+    },
+    {
+      "skill": "compute_algebraic_multistep",
+      "boost": 62,
+      "boost_all": 22,
+      "penalty": 15,
+      "any_keywords": [
+        "symbolic",
+        "algebraic",
+        "multistep",
+        "step by step",
+        "plan",
+        "mathematica",
+        "wolfram",
+        "review"
+      ],
+      "all_keywords": [
+        "symbolic",
+        "plan"
       ],
       "negative_keywords": [
         "numeric",

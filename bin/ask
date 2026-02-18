@@ -19,7 +19,7 @@ if [[ "$SUGGEST_RC" -ne 0 ]]; then
   [[ -n "$SHORT" ]] || SHORT="agenthub suggest failed"
   echo "ERROR=$SHORT" >&2
   echo "LIKELY_CAUSE=agenthub suggest failed (index/runtime issue)." >&2
-  echo "NEXT_STEP=Run ./bin/agenthub doctor" >&2
+  echo "RECOVERY=agenthub_doctor" >&2
   exit "$SUGGEST_RC"
 fi
 
@@ -61,6 +61,5 @@ REQ_REL="${REQ_PATH#$ROOT/}"
 
 echo "RECOMMENDED_SKILL=$RECOMMENDED"
 echo "TASK_NAME=$TASK_NAME"
-echo "NEXT_1=./bin/agenthub start --skill $RECOMMENDED --task-name $TASK_NAME --request $REQ_REL"
-echo "NEXT_2=./bin/agenthub run --task <TASK_ID> [--yes]"
+echo "START_PENDING=true"
 echo "HINT=Request template at $REQ_REL"

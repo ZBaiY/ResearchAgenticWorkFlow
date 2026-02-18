@@ -1,0 +1,18 @@
+{
+  "type": "object",
+  "required": [
+    "goal",
+    "inputs",
+    "expected_outputs",
+    "constraints",
+    "preferred_formats"
+  ],
+  "properties": {
+    "goal": {"type": "string"},
+    "inputs": {"type": "object"},
+    "expected_outputs": {"type": "object"},
+    "constraints": {"type": "array"},
+    "preferred_formats": {"type": "array"},
+    "policy": {"type": "object"}
+  }
+}
