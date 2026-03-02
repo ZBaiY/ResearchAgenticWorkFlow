@@ -1,5 +1,7 @@
 # Agentic Research Workflow
 
+.bin/agent --client codex
+
 Project-local workflow for research tasks (writing, literature scouting, computation, review) with the user in control.
 
 1. `cd` into this repo and open Codex UI (recommended).
